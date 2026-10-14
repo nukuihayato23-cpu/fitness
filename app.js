@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '5';
+  const APP_VERSION = '6';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -15,7 +15,11 @@
 
   // ---------- 保存 ----------
   function defaultState() {
-    return { profile: null, plan: null, logs: [], meals: {}, customFoods: [], weights: [], active: null };
+    return {
+      profile: null, plan: null, logs: [], meals: {}, customFoods: [], weights: [], active: null,
+      prefs: { mealLevel: 'both', mealSlots: ['breakfast', 'lunch', 'dinner', 'snack'] },
+      planSlots: {},
+    };
   }
   function load() {
     try {
@@ -676,120 +680,153 @@
   }
 
   // ---------- 献立提案 ----------
-  const FOOD_BY_NAME = Object.fromEntries(FOODS.map((f) => [f.name, f]));
   const SLOT_WEIGHT = { breakfast: 0.25, lunch: 0.3, dinner: 0.3, snack: 0.15 };
+  const LEVELS = { easy: '簡単', hard: '手の込んだ', both: 'どちらも' };
+  const PORTIONS = [0.75, 1, 1.25, 1.5, 2];
+  const addN = (a, b, k) => a.map((v, i) => v + b[i] * (k == null ? 1 : k));
+  const scaleN = (n, k) => n.map((v) => v * k);
 
-  // 単位の書き方から、量の刻み方と表示方法を決める
-  function unitInfo(unit) {
-    let m = unit.match(/^1([^\d/(]+?)(\(|$)/);
-    if (m) return { type: 'count', counter: m[1] };
-    m = unit.match(/^(\d+)(g|ml)/);
-    if (m) return { type: 'g', base: Number(m[1]), suffix: m[2] };
-    if (unit.startsWith('大さじ')) return { type: 'spoon' };
-    m = unit.match(/\((?:可食)?(\d+)(g|ml)\)/);
-    if (m) return { type: 'g', base: Number(m[1]), suffix: m[2] };
-    return { type: 'other' };
-  }
-  function quantize(food, q) {
-    const u = unitInfo(food.unit);
-    if (u.type === 'g') {
-      const step = u.base * q < 60 ? 5 : 10;
-      return Math.max(step, Math.round((u.base * q) / step) * step) / u.base;
+  // 主食は一般的な1食分で固定(ご飯: 男性180g・女性150g)
+  function stapleItem(type) {
+    const sex = state.profile.sex;
+    switch (type) {
+      case 'rice': {
+        const g = sex === 'male' ? 180 : sex === 'female' ? 150 : 165;
+        return { name: 'ご飯', amount: g + 'g', n: scaleN([1.56, 0.025, 0.003, 0.371], g) };
+      }
+      case 'bread': {
+        const k = sex === 'male' ? 2 : 1;
+        return { name: '食パン(6枚切)', amount: k + '枚', n: scaleN([149, 5.3, 2.5, 26.6], k) };
+      }
+      case 'pasta': {
+        const g = sex === 'male' ? 100 : sex === 'female' ? 80 : 90;
+        return { name: 'パスタ(乾麺)', amount: g + 'g', n: scaleN([3.47, 0.129, 0.018, 0.731], g) };
+      }
+      case 'udon': return { name: 'うどん(ゆで)', amount: '1玉', n: [219, 6.0, 0.9, 49.7] };
+      case 'soba': return { name: 'そば(ゆで)', amount: '1玉', n: [234, 8.6, 1.8, 46.8] };
+      default: return null;
     }
-    // 卵や個包装のものは1個単位、それ以外(杯・人前など)は0.5刻み
-    const step = u.type === 'count' && /^(個|本|枚|パック|缶|袋|尾|貫|玉)$/.test(u.counter) ? 1 : 0.5;
-    return Math.max(step, Math.round(q / step) * step);
-  }
-  function amountText(food, q) {
-    const u = unitInfo(food.unit);
-    const n = round(q, 2);
-    if (u.type === 'g') return round(u.base * q) + u.suffix;
-    if (u.type === 'count') return n + u.counter;
-    if (u.type === 'spoon') return '大さじ' + n;
-    return food.unit + ' ×' + n;
   }
 
-  // 1回に食べる量として不自然にならない上限
-  function maxQ(food) { return unitInfo(food.unit).type === 'count' ? 2 : 3; }
+  function levelOk(item, pref) { return pref !== 'easy' || item.level === 'easy'; }
+  function rotate(list, seed) { return list.length ? list[((seed % list.length) + list.length) % list.length] : null; }
 
-  function fitTemplate(tpl, kcalT, pT) {
-    const items = tpl.items.map(([name, role, q]) => ({ food: FOOD_BY_NAME[name], role, q }));
-    const sumOf = (arr, k) => arr.reduce((n, it) => n + it.food[k] * it.q, 0);
-    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-    const pItem = items.find((it) => it.role === 'protein');
-    const cItem = items.find((it) => it.role === 'carb');
-    const fitProtein = () => {
-      if (!pItem) return;
-      const rest = items.filter((it) => it !== pItem);
-      pItem.q = quantize(pItem.food, clamp((pT - sumOf(rest, 'p')) / pItem.food.p, 0.5, maxQ(pItem.food)));
-    };
-    const fitCarb = () => {
-      if (!cItem) return;
-      const rest = items.filter((it) => it !== cItem);
-      cItem.q = quantize(cItem.food, clamp((kcalT - sumOf(rest, 'kcal')) / cItem.food.kcal, 0.3, maxQ(cItem.food)));
-    };
-    fitProtein(); fitCarb();
-    // それでも多すぎる時は副菜を減らす
-    if (sumOf(items, 'kcal') > kcalT * 1.05) {
-      items.forEach((it) => { if (!it.role && it.q > 0.5) it.q = quantize(it.food, it.q / 2); });
-      fitProtein(); fitCarb();
-    } else if (sumOf(items, 'kcal') < kcalT * 0.93) {
-      // 主食が上限でも足りない時は副菜を増やす
-      items.forEach((it) => { if (!it.role) it.q = quantize(it.food, Math.min(maxQ(it.food), it.q * 1.5)); });
-      fitProtein(); fitCarb();
+  function mealScore(n, T) {
+    return Math.abs(n[0] - T[0]) / Math.max(T[0], 1) + 0.5 * Math.abs(n[1] - T[1]) / Math.max(T[1], 1) + 0.3 * Math.abs(n[2] - T[2]) / Math.max(T[2], 1);
+  }
+
+  // 1品の料理に主食・副菜・汁物を合わせ、目標(T=[kcal,P,F,C])に近づける
+  function composeMeal(dish, slot, T, seed, pref) {
+    const fixed = [];
+    const staple = stapleItem(dish.staple);
+    if (staple) fixed.push(staple);
+    let side = null;
+    if (slot === 'lunch' || slot === 'dinner') {
+      if (dish.staple === 'rice') side = rotate(SIDES.filter((x) => levelOk(x, pref)), seed);
+      else if (dish.staple === 'pasta') side = SIDES.find((x) => x.name === 'トマトとレタスのサラダ');
+      else if (dish.staple === 'udon' || dish.staple === 'soba') side = SIDES.find((x) => x.name === 'ほうれん草のおひたし');
     }
-    const total = { kcal: sumOf(items, 'kcal'), p: sumOf(items, 'p'), f: sumOf(items, 'f'), c: sumOf(items, 'c') };
-    return { name: tpl.name, items, total };
+    const soups = (slot !== 'snack' && SOUPS[dish.staple]) ? SOUPS[dish.staple].filter((x) => levelOk(x, pref)) : [];
+    const soup = rotate(soups, seed + 1);
+    if (soup) fixed.push({ name: soup.name, amount: '1杯', n: soup.n });
+
+    const build = (m, withSide, addons) => {
+      const items = [];
+      if (staple) items.push(staple);
+      items.push({ name: dish.name, amount: m === 1 ? '1人前' : m + '人前', n: scaleN(dish.n, m), main: true });
+      if (withSide && side) items.push({ name: side.name, amount: '1皿', n: side.n, side });
+      if (soup) items.push({ name: soup.name, amount: '1杯', n: soup.n });
+      addons.forEach((a) => items.push({ name: a.name, amount: a.unit, n: a.n, addon: true }));
+      const total = items.reduce((acc, it) => addN(acc, it.n), [0, 0, 0, 0]);
+      return { dish, m, items, total, score: mealScore(total, T) };
+    };
+
+    let best = null;
+    [true, false].forEach((withSide) => {
+      if (!withSide && !side) return;
+      (dish.portions || PORTIONS).forEach((m) => {
+        const r = build(m, withSide, []);
+        // 副菜は基本つける。外すのは多すぎる時だけ
+        if (!withSide) r.score += 0.05;
+        if (!best || r.score < best.score) best = r;
+      });
+    });
+    // 足りなければ「もう一品」を最大2つ足す
+    const addons = [];
+    const maxAddons = T[0] > 900 ? 3 : 2;
+    while (addons.length < maxAddons && best.total[0] < T[0] * 0.92) {
+      let pick = null;
+      ADDONS.filter((a) => !addons.includes(a)).forEach((a) => {
+        (dish.portions || PORTIONS).forEach((m) => {
+          const r = build(m, best.items.some((it) => it.side), addons.concat(a));
+          if (!pick || r.score < pick.score) pick = Object.assign(r, { addon: a });
+        });
+      });
+      if (!pick || pick.score >= best.score) break;
+      addons.push(pick.addon);
+      best = pick;
+    }
+    return best;
   }
 
-  // 目標に近い順に並べ、日付で上位から選び、「別の献立」で順に切り替える
-  function buildMealSlot(slot, kcalT, pT, fT, seed, reroll) {
-    const ranked = MEAL_TEMPLATES[slot].map((tpl) => {
-      const r = fitTemplate(tpl, kcalT, pT);
-      r.score = Math.abs(r.total.kcal - kcalT) / kcalT + 0.5 * Math.abs(r.total.p - pT) / Math.max(pT, 1) + 0.4 * Math.abs(r.total.f - fT) / Math.max(fT, 1);
-      return r;
-    }).sort((a, b) => a.score - b.score);
-    // 日替わりで選ぶのは、いちばん合うものと大差ない候補だけ
-    const good = ranked.filter((r) => r.score <= ranked[0].score + 0.1).length;
-    return ranked[(seed % Math.min(3, good) + reroll) % ranked.length];
-  }
+  function slotsFor(date) { return state.planSlots[date] || state.prefs.mealSlots; }
 
   function mealPlan() {
     const t = nutritionTargets();
+    const pref = state.prefs.mealLevel;
     const logged = state.meals[ui.mealDate] || [];
     const eaten = sumMeals(logged);
+    const chosen = slotsFor(ui.mealDate);
     const doneSlots = Object.keys(MEAL_CATS).filter((cat) => logged.some((it) => it.cat === cat));
-    const openSlots = Object.keys(MEAL_CATS).filter((cat) => !doneSlots.includes(cat));
-    const remK = t.kcal - eaten.kcal;
-    const remP = Math.max(0, t.p - eaten.p);
-    const remF = Math.max(0, t.f - eaten.f);
+    const openSlots = Object.keys(MEAL_CATS).filter((cat) => chosen.includes(cat) && !doneSlots.includes(cat));
+    const rem = [t.kcal - eaten.kcal, Math.max(0, t.p - eaten.p), Math.max(0, t.f - eaten.f), Math.max(0, t.c - eaten.c)];
     const wsum = openSlots.reduce((n, k) => n + SLOT_WEIGHT[k], 0);
-    const seed = Number(ui.mealDate.slice(-2));
+    const seed = Number(ui.mealDate.replace(/-/g, '')) % 97;
     const slots = {};
-    if (remK >= 150) {
+    if (rem[0] >= 150) {
       openSlots.forEach((slot, i) => {
-        const share = SLOT_WEIGHT[slot] / wsum;
-        slots[slot] = buildMealSlot(slot, remK * share, remP * share, remF * share, seed + i, ui.planPick[slot] || 0);
-        slots[slot].targetK = remK * share;
+        const T = scaleN(rem, SLOT_WEIGHT[slot] / wsum);
+        let dishes = DISHES.filter((d) => d.slots.includes(slot) && (pref === 'both' || d.level === pref));
+        if (!dishes.length) dishes = DISHES.filter((d) => d.slots.includes(slot));
+        const ranked = dishes.map((d) => composeMeal(d, slot, T, seed + i, pref)).sort((a, b) => a.score - b.score);
+        // 日替わりで選ぶのは、いちばん合うものと大差ない候補だけ
+        const good = Math.max(1, ranked.filter((r) => r.score <= ranked[0].score + 0.15).length);
+        const pick = ranked[(seed % good + (ui.planPick[slot] || 0)) % ranked.length];
+        slots[slot] = Object.assign(pick, { T });
       });
     }
-    return { t, eaten, doneSlots, openSlots, remK, slots };
+    return { t, eaten, chosen, doneSlots, openSlots, rem, slots };
   }
 
   function viewMealPlan() {
     const plan = mealPlan();
-    const planned = Object.values(plan.slots).reduce((s, sl) => ({ kcal: s.kcal + sl.total.kcal, p: s.p + sl.total.p, f: s.f + sl.total.f, c: s.c + sl.total.c }), { kcal: 0, p: 0, f: 0, c: 0 });
-    const day = { kcal: plan.eaten.kcal + planned.kcal, p: plan.eaten.p + planned.p, f: plan.eaten.f + planned.f, c: plan.eaten.c + planned.c };
+    const pref = state.prefs.mealLevel;
+    const planned = Object.values(plan.slots).reduce((acc, sl) => addN(acc, sl.total), [0, 0, 0, 0]);
+    const day = addN([plan.eaten.kcal, plan.eaten.p, plan.eaten.f, plan.eaten.c], planned);
+    const same = plan.chosen.join() === state.prefs.mealSlots.join();
     let html = `<section class="card">
+      <div class="field-label">この日に食べる食事</div>
+      <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('plan-slot-toggle', k, l, plan.chosen.includes(k))).join('')}</div>
+      ${same ? '' : '<button class="btn tiny ghost" data-action="plan-slot-default">この組み合わせをいつもの設定にする</button>'}
+      <div class="field-label" style="margin-top:12px">料理の手間</div>
+      <div class="chips">${Object.entries(LEVELS).map(([k, l]) => chip('plan-level', k, l, pref === k)).join('')}</div>
+    </section>
+    <section class="card">
       <h3>目標 ${plan.t.kcal}kcal から逆算した献立</h3>
-      <p class="muted small">${plan.doneSlots.length ? '記録済みの食事(' + Math.round(plan.eaten.kcal) + 'kcal)を差し引いた残りで、まだ食べていない食事を提案しています。' : '1日の目標カロリーとたんぱく質を、朝25%・昼30%・夕30%・間食15%に振り分けています。'}</p>
-      ${bar('カロリー(この献立で食べた場合)', day.kcal, plan.t.kcal, 'kcal', 'k')}
-      ${bar('タンパク質(P)', day.p, plan.t.p, 'g', 'p')}
-      ${bar('脂質(F)', day.f, plan.t.f, 'g', 'f')}
-      ${bar('炭水化物(C)', day.c, plan.t.c, 'g', 'c')}
+      <p class="muted small">${plan.doneSlots.length ? '記録済みの食事(' + Math.round(plan.eaten.kcal) + 'kcal)を差し引き、' : ''}残りを${plan.openSlots.map((k) => MEAL_CATS[k]).join('・') || '—'}に振り分けています。ご飯は${stapleItem('rice').amount}で固定し、おかずの量で調整しています。</p>
+      ${bar('カロリー(この献立で食べた場合)', day[0], plan.t.kcal, 'kcal', 'k')}
+      ${bar('タンパク質(P)', day[1], plan.t.p, 'g', 'p')}
+      ${bar('脂質(F)', day[2], plan.t.f, 'g', 'f')}
+      ${bar('炭水化物(C)', day[3], plan.t.c, 'g', 'c')}
     </section>`;
-    if (plan.remK < 150) {
-      html += '<section class="card"><p>今日はもう目標カロリーに届いています。食べるなら野菜や汁物など軽いものにしましょう。</p></section>';
+    const short = plan.t.kcal - day[0];
+    if (plan.openSlots.length && plan.rem[0] >= 150 && short > plan.t.kcal * 0.08) {
+      html += `<section class="card warn-card"><p class="small">この組み合わせだと目標まで<b>約${Math.round(short)}kcal</b>足りません。食事の回数が少ないと1食で食べきるのが難しいので、間食を増やすか、ご飯を大盛り(250g・+${Math.round((250 - parseInt(stapleItem('rice').amount, 10)) * 1.56)}kcal)にすると近づきます。</p></section>`;
+    }
+    if (!plan.openSlots.length) {
+      html += '<section class="card"><p>提案する食事がありません。上の「この日に食べる食事」で選んでください。</p></section>';
+    } else if (plan.rem[0] < 150) {
+      html += '<section class="card"><p>この日はもう目標カロリーに届いています。食べるなら野菜や汁物など軽いものにしましょう。</p></section>';
     }
     Object.entries(MEAL_CATS).forEach(([slot, label]) => {
       if (plan.doneSlots.includes(slot)) {
@@ -799,14 +836,23 @@
       }
       const sl = plan.slots[slot];
       if (!sl) return;
+      const d = sl.dish;
+      const sideItem = sl.items.find((it) => it.side);
       html += `<section class="card plan-slot">
-        <header class="day-head"><div><h3>${label}</h3><span class="muted small">${esc(sl.name)}</span></div><span class="muted small">目安 ${Math.round(sl.targetK)}kcal</span></header>
-        <ul class="food-list">${sl.items.map((it) => `<li><span>${esc(it.food.name)} <b>${esc(amountText(it.food, it.q))}</b></span><span class="muted small">${Math.round(it.food.kcal * it.q)}kcal</span></li>`).join('')}</ul>
-        <p class="plan-total"><b>${Math.round(sl.total.kcal)}kcal</b> <span class="muted small">P${round(sl.total.p, 1)} F${round(sl.total.f, 1)} C${round(sl.total.c, 1)}</span></p>
+        <header class="day-head"><h3>${label}</h3><span class="muted small">目安 ${Math.round(sl.T[0])}kcal</span></header>
+        <div class="dish-title"><strong>${esc(d.name)}</strong><span class="lv ${d.level}">${d.level === 'easy' ? '簡単' : '手の込んだ'}・${d.min}分</span></div>
+        <ul class="food-list">${sl.items.map((it) => `<li><span>${it.addon ? '＋ ' : ''}${esc(it.name)} <b>${esc(it.amount)}</b></span><span class="muted small">${Math.round(it.n[0])}kcal</span></li>`).join('')}</ul>
+        <p class="plan-total"><b>${Math.round(sl.total[0])}kcal</b> <span class="muted small">P${round(sl.total[1], 1)} F${round(sl.total[2], 1)} C${round(sl.total[3], 1)}</span></p>
+        <details class="recipe"><summary>作り方を見る</summary>
+          <p class="small"><b>${esc(d.name)}</b>(材料は1人前${sl.m !== 1 ? '。今回は' + sl.m + '倍の量で' : ''})<br>${esc(d.ing)}</p>
+          <ol class="small">${d.steps.map((st) => `<li>${esc(st)}</li>`).join('')}</ol>
+          ${sideItem ? `<p class="small"><b>${esc(sideItem.side.name)}</b>: ${esc(sideItem.side.ing)}</p>` : ''}
+          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで「${esc(d.name.replace(/\(.*?\)/g, ''))}」の詳しいレシピを探す ↗</a>
+        </details>
         <div class="row-btns"><button class="btn ghost" data-action="plan-reroll" data-slot="${slot}">↻ 別の献立</button><button class="btn primary" data-action="plan-log" data-slot="${slot}">食べたので記録する</button></div>
       </section>`;
     });
-    html += '<p class="muted small">量は目標に合わせて自動で調整しています。数値は目安です。</p>';
+    html += '<p class="muted small">料理は定番の家庭料理の分量をもとにした目安です。</p>';
     return html;
   }
 
@@ -1076,14 +1122,25 @@
         break;
       }
       case 'meal-view': ui.mealView = d.v; render(); window.scrollTo(0, 0); break;
+      case 'plan-slot-toggle': {
+        const cur = slotsFor(ui.mealDate);
+        const next = cur.includes(d.value) ? cur.filter((x) => x !== d.value) : cur.concat(d.value);
+        state.planSlots[ui.mealDate] = Object.keys(MEAL_CATS).filter((k) => next.includes(k));
+        save(); render(); break;
+      }
+      case 'plan-slot-default':
+        state.prefs.mealSlots = slotsFor(ui.mealDate).slice();
+        delete state.planSlots[ui.mealDate];
+        save(); render(); toast('いつも食べる食事を保存しました'); break;
+      case 'plan-level': state.prefs.mealLevel = d.value; ui.planPick = {}; save(); render(); break;
       case 'plan-reroll': ui.planPick[d.slot] = (ui.planPick[d.slot] || 0) + 1; render(); break;
       case 'plan-log': {
         const sl = mealPlan().slots[d.slot];
         if (!sl) break;
         const list = state.meals[ui.mealDate] || (state.meals[ui.mealDate] = []);
-        sl.items.forEach((it) => list.push({ cat: d.slot, name: it.food.name, unit: it.food.unit, amount: amountText(it.food, it.q), qty: round(it.q, 2), kcal: it.food.kcal * it.q, p: it.food.p * it.q, f: it.food.f * it.q, c: it.food.c * it.q }));
+        sl.items.forEach((it) => list.push({ cat: d.slot, name: it.name, unit: '', amount: it.amount, qty: 1, kcal: it.n[0], p: it.n[1], f: it.n[2], c: it.n[3] }));
         save(); render();
-        toast(MEAL_CATS[d.slot] + 'に「' + sl.name + '」を記録しました');
+        toast(MEAL_CATS[d.slot] + 'に「' + sl.dish.name + '」の献立を記録しました');
         break;
       }
       case 'custom-del':

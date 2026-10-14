@@ -307,3 +307,14 @@ label.btn { cursor: pointer; }
 .plan-slot.done { opacity: .7; }
 .plan-slot.done .day-head { margin: 0; }
 .plan-total { margin: 8px 0 0; text-align: right; }
+
+.dish-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 16px; }
+.lv { font-size: 11px; font-weight: 700; border-radius: 99px; padding: 1px 8px; border: 1px solid var(--line); color: var(--muted); }
+.lv.easy { color: var(--ok); border-color: var(--ok); }
+.lv.hard { color: var(--accent-text); border-color: var(--accent); }
+.recipe { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.recipe summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.recipe ol { padding-left: 20px; margin: 6px 0; }
+.recipe a { color: var(--accent-text); }
+
+.warn-card { background: var(--accent-soft); border-color: var(--accent); }
