@@ -339,5 +339,15 @@ label.btn { cursor: pointer; }
 .fr-recipe { border-top: 1px solid var(--line); padding: 10px 0; }
 .fr-recipe:first-child { border-top: 0; }
 .ok-text { color: var(--ok); }
-.fridge-hit { margin: 0 0 4px; color: var(--ok); font-weight: 600; }
-.fridge-buy { margin: 0 0 4px; }
+
+/* ingredients & shopping */
+.ingr { margin-top: 10px; }
+.ingr-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.ingr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ing { display: inline-flex; align-items: baseline; gap: 4px; font-size: 13px; border-radius: 6px; padding: 2px 8px; border: 1px solid var(--line); }
+.ing small { font-size: 10px; }
+.ing.have { color: var(--ok); border-color: var(--ok); }
+.ing.buy { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.shop-list { margin: 0 0 8px; padding-left: 20px; columns: 2; }
+.shop-list li { break-inside: avoid; }
+.locked-note { margin: 0 0 4px; }

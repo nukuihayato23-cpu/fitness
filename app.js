@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '7';
+  const APP_VERSION = '8';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -19,6 +19,7 @@
       profile: null, plan: null, logs: [], meals: {}, customFoods: [], weights: [], active: null,
       prefs: { mealLevel: 'both', mealSlots: ['breakfast', 'lunch', 'dinner', 'snack'], useFridge: true },
       fridge: [],
+      lockedPlans: {},
       planSlots: {},
     };
   }
@@ -755,11 +756,49 @@
     const best = Math.max.apply(null, list.map((x) => fridgeMatch(x.uses, w).w));
     return best > 0 ? rotate(list.filter((x) => fridgeMatch(x.uses, w).w === best), seed) : rotate(list, seed);
   }
+  // 献立(主菜・副菜・汁物・もう一品)で使う食材。調味料とご飯は家にあるものとする
+  function mealIngredients(sl) {
+    const uses = [].concat(sl.dish.uses || [], ...sl.items.map((it) => (it.side && it.side.uses) || (it.soup && it.soup.uses) || (it.addon && it.addon.uses) || []));
+    return Array.from(new Set(uses));
+  }
+  function fridgeHave() { return new Set(state.fridge.map((it) => it.key).filter(Boolean)); }
   function mealFridgeHits(sl) {
     if (!fridgeOn()) return [];
-    const w = fridgeWeights();
-    const uses = [].concat(sl.dish.uses || [], ...sl.items.map((it) => (it.side && it.side.uses) || (it.soup && it.soup.uses) || []));
-    return Array.from(new Set(uses.filter((u) => w[u])));
+    const have = fridgeHave();
+    return mealIngredients(sl).filter((u) => have.has(u));
+  }
+  function ingredientChips(list, have) {
+    return list.map((u) => have.has(u)
+      ? `<span class="ing have">✓ ${esc(u)}<small>冷蔵庫にある</small></span>`
+      : `<span class="ing buy">🛒 ${esc(u)}</span>`).join('');
+  }
+
+  function buildMeal(dish, m, side, soup, addons, T) {
+    const items = [];
+    const staple = stapleItem(dish.staple);
+    if (staple) items.push(staple);
+    items.push({ name: dish.name, amount: m === 1 ? '1人前' : m + '人前', n: scaleN(dish.n, m), main: true });
+    if (side) items.push({ name: side.name, amount: '1皿', n: side.n, side });
+    if (soup) items.push({ name: soup.name, amount: '1杯', n: soup.n, soup });
+    addons.forEach((a) => items.push({ name: a.name, amount: a.unit, n: a.n, addon: a }));
+    const total = items.reduce((acc, it) => addN(acc, it.n), [0, 0, 0, 0]);
+    return { dish, m, items, total, score: mealScore(total, T) };
+  }
+
+  // 買い物を済ませた献立は、冷蔵庫の中身が変わっても組み直さない
+  function lockPlan(date, slot, sl) {
+    const day = state.lockedPlans[date] || (state.lockedPlans[date] = {});
+    const find = (k) => { const it = sl.items.find((x) => x[k]); return it ? it[k].name : null; };
+    day[slot] = { dish: sl.dish.name, m: sl.m, side: find('side'), soup: find('soup'), addons: sl.items.filter((x) => x.addon).map((x) => x.addon.name) };
+  }
+  function lockedMeal(lock, T) {
+    const dish = DISHES.find((d) => d.name === lock.dish);
+    if (!dish) return null;
+    const allSoups = [].concat(...Object.values(SOUPS));
+    const r = buildMeal(dish, lock.m, SIDES.find((x) => x.name === lock.side) || null, allSoups.find((x) => x.name === lock.soup) || null,
+      lock.addons.map((n) => ADDONS.find((a) => a.name === n)).filter(Boolean), T);
+    r.locked = true;
+    return r;
   }
 
   function composeMeal(dish, slot, T, seed, pref) {
@@ -776,16 +815,7 @@
     const soup = pickByFridge(soups, seed + 1);
     if (soup) fixed.push({ name: soup.name, amount: '1杯', n: soup.n });
 
-    const build = (m, withSide, addons) => {
-      const items = [];
-      if (staple) items.push(staple);
-      items.push({ name: dish.name, amount: m === 1 ? '1人前' : m + '人前', n: scaleN(dish.n, m), main: true });
-      if (withSide && side) items.push({ name: side.name, amount: '1皿', n: side.n, side });
-      if (soup) items.push({ name: soup.name, amount: '1杯', n: soup.n, soup });
-      addons.forEach((a) => items.push({ name: a.name, amount: a.unit, n: a.n, addon: true }));
-      const total = items.reduce((acc, it) => addN(acc, it.n), [0, 0, 0, 0]);
-      return { dish, m, items, total, score: mealScore(total, T) };
-    };
+    const build = (m, withSide, addons) => buildMeal(dish, m, withSide ? side : null, soup, addons, T);
 
     let best = null;
     [true, false].forEach((withSide) => {
@@ -831,7 +861,13 @@
     const slots = {};
     const usedDishes = new Set();
     if (rem[0] >= 150) {
+      const locks = state.lockedPlans[ui.mealDate] || {};
+      openSlots.forEach((slot) => {
+        const r = locks[slot] && lockedMeal(locks[slot], scaleN(rem, SLOT_WEIGHT[slot] / wsum));
+        if (r) { usedDishes.add(r.dish.name); slots[slot] = Object.assign(r, { T: scaleN(rem, SLOT_WEIGHT[slot] / wsum) }); }
+      });
       openSlots.forEach((slot, i) => {
+        if (slots[slot]) return;
         const T = scaleN(rem, SLOT_WEIGHT[slot] / wsum);
         let dishes = DISHES.filter((d) => d.slots.includes(slot) && (pref === 'both' || d.level === pref));
         if (!dishes.length) dishes = DISHES.filter((d) => d.slots.includes(slot));
@@ -862,6 +898,10 @@
     const planned = Object.values(plan.slots).reduce((acc, sl) => addN(acc, sl.total), [0, 0, 0, 0]);
     const day = addN([plan.eaten.kcal, plan.eaten.p, plan.eaten.f, plan.eaten.c], planned);
     const same = plan.chosen.join() === state.prefs.mealSlots.join();
+    const have = fridgeHave();
+    const allIngr = Array.from(new Set([].concat(...Object.values(plan.slots).map(mealIngredients))));
+    const toBuy = allIngr.filter((u) => !have.has(u));
+    const fromFridge = allIngr.filter((u) => have.has(u));
     let html = `<section class="card">
       <div class="field-label">この日に食べる食事</div>
       <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('plan-slot-toggle', k, l, plan.chosen.includes(k))).join('')}</div>
@@ -879,7 +919,14 @@
       ${bar('タンパク質(P)', day[1], plan.t.p, 'g', 'p')}
       ${bar('脂質(F)', day[2], plan.t.f, 'g', 'f')}
       ${bar('炭水化物(C)', day[3], plan.t.c, 'g', 'c')}
-    </section>`;
+    </section>
+    ${allIngr.length ? `<section class="card shop">
+      <h3>🛒 この日の買い物リスト${toBuy.length ? `(${toBuy.length}品)` : ''}</h3>
+      ${toBuy.length ? `<ul class="shop-list">${toBuy.map((u) => `<li>${esc(u)}</li>`).join('')}</ul>` : '<p class="ok-text"><b>買い物は不要です。冷蔵庫の食材だけで作れます。</b></p>'}
+      ${fromFridge.length ? `<p class="small"><span class="ok-text">✓ 冷蔵庫にあるので買わなくてOK:</span> ${fromFridge.map(esc).join('・')}</p>` : ''}
+      <p class="muted small">調味料とお米は家にあるものとしています。</p>
+      ${toBuy.length ? `<button class="btn ghost block" data-action="shop-done" data-items="${esc(toBuy.join(','))}">買ったので冷蔵庫に入れる</button>` : ''}
+    </section>` : ''}`;
     const short = plan.t.kcal - day[0];
     if (plan.openSlots.length && plan.rem[0] >= 150 && short > plan.t.kcal * 0.08) {
       html += `<section class="card warn-card"><p class="small">この組み合わせだと目標まで<b>約${Math.round(short)}kcal</b>足りません。食事の回数が少ないと1食で食べきるのが難しいので、間食を増やすか、ご飯を大盛り(250g・+${Math.round((250 - parseInt(stapleItem('rice').amount, 10)) * 1.56)}kcal)にすると近づきます。</p></section>`;
@@ -901,10 +948,10 @@
       const sideItem = sl.items.find((it) => it.side);
       html += `<section class="card plan-slot">
         <header class="day-head"><h3>${label}</h3><span class="muted small">目安 ${Math.round(sl.T[0])}kcal</span></header>
-        ${mealFridgeHits(sl).length ? `<p class="fridge-hit small">🧊 冷蔵庫から: ${mealFridgeHits(sl).map(esc).join('・')}</p>` : ''}
-        ${fridgeOn() && (d.uses || []).some((u) => !fridgeWeights()[u]) ? `<p class="muted small fridge-buy">🛒 買い足すもの: ${(d.uses || []).filter((u) => !fridgeWeights()[u]).map(esc).join('・')}</p>` : ''}
+        ${sl.locked ? '<p class="muted small locked-note">🔒 買い物済みの献立です(「別の献立」で変更できます)</p>' : ''}
         <div class="dish-title"><strong>${esc(d.name)}</strong><span class="lv ${d.level}">${d.level === 'easy' ? '簡単' : '手の込んだ'}・${d.min}分</span></div>
         <ul class="food-list">${sl.items.map((it) => `<li><span>${it.addon ? '＋ ' : ''}${esc(it.name)} <b>${esc(it.amount)}</b></span><span class="muted small">${Math.round(it.n[0])}kcal</span></li>`).join('')}</ul>
+        <div class="ingr"><div class="ingr-label">使う食材</div><div class="ingr-chips">${ingredientChips(mealIngredients(sl), have)}</div></div>
         <p class="plan-total"><b>${Math.round(sl.total[0])}kcal</b> <span class="muted small">P${round(sl.total[1], 1)} F${round(sl.total[2], 1)} C${round(sl.total[3], 1)}</span></p>
         <details class="recipe"><summary>作り方を見る</summary>
           <p class="small"><b>${esc(d.name)}</b>(材料は1人前${sl.m !== 1 ? '。今回は' + sl.m + '倍の量で' : ''})<br>${esc(d.ing)}</p>
@@ -1281,7 +1328,9 @@
         delete state.planSlots[ui.mealDate];
         save(); render(); toast('いつも食べる食事を保存しました'); break;
       case 'plan-level': state.prefs.mealLevel = d.value; ui.planPick = {}; save(); render(); break;
-      case 'plan-reroll': ui.planPick[d.slot] = (ui.planPick[d.slot] || 0) + 1; render(); break;
+      case 'plan-reroll':
+        if (state.lockedPlans[ui.mealDate] && state.lockedPlans[ui.mealDate][d.slot]) { delete state.lockedPlans[ui.mealDate][d.slot]; save(); }
+        ui.planPick[d.slot] = (ui.planPick[d.slot] || 0) + 1; render(); break;
       case 'fr-toggle': {
         const has = state.fridge.some((it) => it.key === d.value);
         if (has) { state.fridge = state.fridge.filter((it) => it.key !== d.value); toast(d.value + 'を冷蔵庫から外しました'); }
@@ -1293,6 +1342,15 @@
         if (!name) break;
         addFridge(name); ui.fridgeQuery = '';
         render(); toast(name + 'を冷蔵庫に入れました'); break;
+      }
+      case 'shop-done': {
+        const names = d.items.split(',').filter(Boolean);
+        const cur = mealPlan();
+        Object.entries(cur.slots).forEach(([slot, sl]) => lockPlan(ui.mealDate, slot, sl));
+        const have = fridgeHave();
+        names.filter((n) => !have.has(n)).forEach(addFridge);
+        save(); render(); toast(names.length + '品を冷蔵庫に入れました');
+        break;
       }
       case 'fr-del': state.fridge = state.fridge.filter((it) => it.id !== d.id); save(); render(); break;
       case 'plan-log': {
