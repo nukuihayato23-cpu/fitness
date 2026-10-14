@@ -3,6 +3,8 @@
   'use strict';
 
   const STORAGE_KEY = 'fitness-app-v1';
+  // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
+  const APP_VERSION = '3';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -744,6 +746,7 @@
         </dl>
         <button class="btn primary" data-action="edit-profile">条件を変更してメニューを作り直す</button>
       </section>
+      <p class="muted small">バージョン ${APP_VERSION}</p>
       <section class="card"><h3>データ</h3>
         <p class="muted small">データはこの端末のブラウザに保存されています。機種変更やブラウザ変更の前にはバックアップしてください。</p>
         <div class="row-btns">
@@ -936,9 +939,19 @@
     if (t.hasAttribute('data-active-note')) { state.active.note = t.value; save(); return; }
     if (t.hasAttribute('data-food-query')) {
       // 入力欄ごと描き直すと日本語入力中に文字が二重になるので、候補リストだけ更新する
-      ui.foodQuery = t.value;
-      app.querySelector('.food-pick').innerHTML = foodPickItems();
+      // 変換中は触らず、確定(compositionend)したときに更新する
+      if (ev.isComposing) return;
+      updateFoodPick(t);
     }
+  });
+
+  function updateFoodPick(input) {
+    ui.foodQuery = input.value;
+    const list = app.querySelector('.food-pick');
+    if (list) list.innerHTML = foodPickItems();
+  }
+  app.addEventListener('compositionend', (ev) => {
+    if (ev.target.hasAttribute && ev.target.hasAttribute('data-food-query')) updateFoodPick(ev.target);
   });
 
   app.addEventListener('change', (ev) => {
