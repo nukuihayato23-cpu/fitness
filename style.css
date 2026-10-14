@@ -283,3 +283,27 @@ label.btn { cursor: pointer; }
 .chips.scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-top: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .chips.scroll::-webkit-scrollbar { display: none; }
 .chips.scroll .chip { flex-shrink: 0; }
+
+/* food select */
+.sel-hint { margin: 4px 0 8px; }
+.sel-panel { border: 2px solid var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 12px; margin: 4px 0 10px; display: grid; gap: 6px; }
+.sel-panel .row-btns { margin-top: 4px; }
+.sel-panel .row-btns .btn { flex: 1; }
+.sel-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.stepper { display: flex; align-items: center; gap: 12px; }
+.stepper b { min-width: 48px; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+.food-pick li.picked { background: var(--accent-soft); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  background: var(--text); color: var(--card); padding: 10px 16px; border-radius: 99px;
+  font-size: 14px; font-weight: 600; max-width: calc(100% - 32px); box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
+}
+/* meal view switch */
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; margin-bottom: 12px; }
+.seg button { border: 0; background: transparent; border-radius: 8px; padding: 8px; font-weight: 700; cursor: pointer; color: var(--muted); }
+.seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+.plan-slot .food-list b { font-weight: 700; color: var(--accent-text); margin-left: 4px; }
+.plan-slot.done { opacity: .7; }
+.plan-slot.done .day-head { margin: 0; }
+.plan-total { margin: 8px 0 0; text-align: right; }
