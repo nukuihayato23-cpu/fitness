@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
