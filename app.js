@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '3';
+  const APP_VERSION = '4';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -37,6 +37,7 @@
     mealDate: today(),
     mealCat: 'breakfast',
     foodQuery: '',
+    foodCat: null,
     quick: { parts: [], minutes: 45, variant: 0, result: null },
     openLog: null,
   };
@@ -616,18 +617,58 @@
       <div class="meter ${cls} ${over ? 'over' : ''}"><div style="width:${pct}%"></div></div></div>`;
   }
 
-  function allFoodsList() {
-    return state.customFoods.map((f) => Object.assign({ custom: true }, f)).concat(FOODS);
+  // カタカナ→ひらがな・全角半角をそろえて、「はむ」でも「ハム」が見つかるようにする
+  function norm(str) {
+    return String(str).normalize('NFKC').toLowerCase()
+      .replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  }
+
+  function recentFoods() {
+    const seen = new Set();
+    const out = [];
+    for (const date of Object.keys(state.meals).sort().reverse()) {
+      for (const it of state.meals[date].slice().reverse()) {
+        if (seen.has(it.name)) continue;
+        seen.add(it.name);
+        const q = it.qty || 1;
+        out.push({ name: it.name, unit: it.unit || '', kcal: round(it.kcal / q), p: round(it.p / q, 1), f: round(it.f / q, 1), c: round(it.c / q, 1) });
+        if (out.length >= 20) return out;
+      }
+    }
+    return out;
+  }
+
+  function currentFoodCat() {
+    if (ui.foodCat) return ui.foodCat;
+    return recentFoods().length ? 'recent' : 'all';
+  }
+
+  // 今表示している候補リスト(検索中は全食品から探す)
+  function pickList() {
+    const custom = state.customFoods.map((f, ci) => Object.assign({ custom: true, ci }, f));
+    const q = norm(ui.foodQuery.replace(/\s+/g, ''));
+    if (q) return custom.concat(FOODS).filter((f) => norm(f.name + ' ' + (f.k || '')).includes(q));
+    const cat = currentFoodCat();
+    if (cat === 'recent') return recentFoods();
+    if (cat === 'custom') return custom;
+    if (cat === 'all') return custom.concat(FOODS);
+    return FOODS.filter((f) => f.cat === cat);
+  }
+
+  function foodCatChips() {
+    const cat = currentFoodCat();
+    const items = [];
+    if (recentFoods().length) items.push(['recent', '最近']);
+    items.push(['all', 'すべて']);
+    if (state.customFoods.length) items.push(['custom', 'マイ食品']);
+    Object.entries(FOOD_CATS).forEach((e) => items.push(e));
+    return items.map(([k, l]) => chip('food-cat', k, l, cat === k)).join('');
   }
 
   function foodPickItems() {
-    const allFoods = allFoodsList();
-    const q = ui.foodQuery.trim();
-    const filtered = q ? allFoods.filter((f) => f.name.includes(q)) : allFoods;
-    return filtered.map((f) => {
-      const idx = allFoods.indexOf(f);
-      return `<li><button data-action="food-add" data-fi="${idx}"><span>${f.custom ? '⭐ ' : ''}${esc(f.name)} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="icon-btn tiny" data-action="custom-del" data-ci="${idx}" title="マイ食品から削除">✕</button>` : ''}</li>`;
-    }).join('') || '<li class="muted small">見つかりません。下の「手入力」で追加できます。</li>';
+    return pickList().map((f, idx) =>
+      `<li><button data-action="food-add" data-fi="${idx}"><span>${f.custom ? '⭐ ' : ''}${esc(f.name)} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="icon-btn tiny" data-action="custom-del" data-ci="${f.ci}" title="マイ食品から削除">✕</button>` : ''}</li>`
+    ).join('') || '<li class="muted small">見つかりません。ひらがなでも探せます。ない場合は下の「手入力」で追加できます。</li>';
   }
 
   function viewMeals() {
@@ -660,8 +701,9 @@
       <section class="card" id="food-add">
         <h3>食べたものを追加</h3>
         <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('meal-cat', k, l, ui.mealCat === k)).join('')}</div>
-        <div class="row qty-row"><label>量</label><select data-qty>${[0.5, 1, 1.5, 2, 3].map((v) => `<option value="${v}" ${v === 1 ? 'selected' : ''}>×${v}</option>`).join('')}</select>
-        <input type="search" placeholder="食品を検索(例: 鶏)" value="${esc(ui.foodQuery)}" data-food-query></div>
+        <div class="row qty-row"><label>量</label><select data-qty>${[0.5, 1, 1.5, 2, 3, 4, 5].map((v) => `<option value="${v}" ${v === 1 ? 'selected' : ''}>×${v}</option>`).join('')}</select>
+        <input type="search" placeholder="食品を検索(例: はむ、ぎゅうどん)" value="${esc(ui.foodQuery)}" data-food-query></div>
+        <div class="chips scroll">${foodCatChips()}</div>
         <ul class="food-pick">${foodPickItems()}</ul>
         <details class="manual"><summary>手入力で追加(外食・コンビニ商品など)</summary>
           <div class="manual-grid">
@@ -847,11 +889,13 @@
         break;
 
       case 'meal-date': ui.mealDate = shiftDate(ui.mealDate, Number(d.d)); render(); break;
+      case 'food-cat': ui.foodCat = d.value; ui.foodQuery = ''; render(); document.getElementById('food-add').scrollIntoView(); break;
       case 'meal-cat': ui.mealCat = d.value; render(); document.getElementById('food-add').scrollIntoView(); break;
       case 'food-add': {
-        const f = allFoodsList()[Number(d.fi)];
+        const f = pickList()[Number(d.fi)];
+        if (!f) break;
         const qty = Number(app.querySelector('[data-qty]').value) || 1;
-        addMeal({ name: f.name, qty, kcal: f.kcal * qty, p: f.p * qty, f: f.f * qty, c: f.c * qty });
+        addMeal({ name: f.name, unit: f.unit, qty, kcal: f.kcal * qty, p: f.p * qty, f: f.f * qty, c: f.c * qty });
         break;
       }
       case 'custom-del':
@@ -865,7 +909,7 @@
         const food = { name, unit: '1食', kcal, p: num(get('p')) || 0, f: num(get('f')) || 0, c: num(get('c')) || 0 };
         if (app.querySelector('[data-manual-save]').checked && !state.customFoods.some((x) => x.name === name)) state.customFoods.unshift(food);
         const qty = Number(app.querySelector('[data-qty]').value) || 1;
-        addMeal({ name, qty, kcal: food.kcal * qty, p: food.p * qty, f: food.f * qty, c: food.c * qty });
+        addMeal({ name, unit: food.unit, qty, kcal: food.kcal * qty, p: food.p * qty, f: food.f * qty, c: food.c * qty });
         break;
       }
       case 'meal-del': state.meals[ui.mealDate].splice(Number(d.i), 1); save(); render(); break;

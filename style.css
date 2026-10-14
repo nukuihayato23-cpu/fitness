@@ -279,3 +279,7 @@ label.btn { cursor: pointer; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ob-actions > span { display: none; }
+
+.chips.scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-top: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.chips.scroll::-webkit-scrollbar { display: none; }
+.chips.scroll .chip { flex-shrink: 0; }
