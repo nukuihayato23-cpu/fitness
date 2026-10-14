@@ -614,15 +614,25 @@
       <div class="meter ${cls} ${over ? 'over' : ''}"><div style="width:${pct}%"></div></div></div>`;
   }
 
+  function allFoodsList() {
+    return state.customFoods.map((f) => Object.assign({ custom: true }, f)).concat(FOODS);
+  }
+
+  function foodPickItems() {
+    const allFoods = allFoodsList();
+    const q = ui.foodQuery.trim();
+    const filtered = q ? allFoods.filter((f) => f.name.includes(q)) : allFoods;
+    return filtered.map((f) => {
+      const idx = allFoods.indexOf(f);
+      return `<li><button data-action="food-add" data-fi="${idx}"><span>${f.custom ? '⭐ ' : ''}${esc(f.name)} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="icon-btn tiny" data-action="custom-del" data-ci="${idx}" title="マイ食品から削除">✕</button>` : ''}</li>`;
+    }).join('') || '<li class="muted small">見つかりません。下の「手入力」で追加できます。</li>';
+  }
+
   function viewMeals() {
     const t = nutritionTargets();
     const items = state.meals[ui.mealDate] || [];
     const total = sumMeals(items);
     const remain = t.kcal - total.kcal;
-    const allFoods = state.customFoods.map((f) => Object.assign({ custom: true }, f)).concat(FOODS);
-    const q = ui.foodQuery.trim();
-    const filtered = q ? allFoods.filter((f) => f.name.includes(q)) : allFoods;
-
     return `<h1 class="page-title">食事管理</h1>
       <div class="date-nav"><button class="icon-btn" data-action="meal-date" data-d="-1">‹</button><strong>${fmtDate(ui.mealDate)}${ui.mealDate === today() ? ' 今日' : ''}</strong><button class="icon-btn" data-action="meal-date" data-d="1">›</button></div>
       <section class="card">
@@ -650,10 +660,7 @@
         <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('meal-cat', k, l, ui.mealCat === k)).join('')}</div>
         <div class="row qty-row"><label>量</label><select data-qty>${[0.5, 1, 1.5, 2, 3].map((v) => `<option value="${v}" ${v === 1 ? 'selected' : ''}>×${v}</option>`).join('')}</select>
         <input type="search" placeholder="食品を検索(例: 鶏)" value="${esc(ui.foodQuery)}" data-food-query></div>
-        <ul class="food-pick">${filtered.map((f) => {
-          const idx = allFoods.indexOf(f);
-          return `<li><button data-action="food-add" data-fi="${idx}"><span>${f.custom ? '⭐ ' : ''}${esc(f.name)} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="icon-btn tiny" data-action="custom-del" data-ci="${idx}" title="マイ食品から削除">✕</button>` : ''}</li>`;
-        }).join('') || '<li class="muted small">見つかりません。下の「手入力」で追加できます。</li>'}</ul>
+        <ul class="food-pick">${foodPickItems()}</ul>
         <details class="manual"><summary>手入力で追加(外食・コンビニ商品など)</summary>
           <div class="manual-grid">
             <label class="field wide"><span>名前</span><input type="text" data-manual="name" placeholder="例: 牛丼並盛"></label>
@@ -839,8 +846,7 @@
       case 'meal-date': ui.mealDate = shiftDate(ui.mealDate, Number(d.d)); render(); break;
       case 'meal-cat': ui.mealCat = d.value; render(); document.getElementById('food-add').scrollIntoView(); break;
       case 'food-add': {
-        const allFoods = state.customFoods.map((f) => Object.assign({ custom: true }, f)).concat(FOODS);
-        const f = allFoods[Number(d.fi)];
+        const f = allFoodsList()[Number(d.fi)];
         const qty = Number(app.querySelector('[data-qty]').value) || 1;
         addMeal({ name: f.name, qty, kcal: f.kcal * qty, p: f.p * qty, f: f.f * qty, c: f.c * qty });
         break;
@@ -929,11 +935,9 @@
     }
     if (t.hasAttribute('data-active-note')) { state.active.note = t.value; save(); return; }
     if (t.hasAttribute('data-food-query')) {
+      // 入力欄ごと描き直すと日本語入力中に文字が二重になるので、候補リストだけ更新する
       ui.foodQuery = t.value;
-      const pos = t.selectionStart;
-      render();
-      const n = app.querySelector('[data-food-query]');
-      n.focus(); n.setSelectionRange(pos, pos);
+      app.querySelector('.food-pick').innerHTML = foodPickItems();
     }
   });
 
