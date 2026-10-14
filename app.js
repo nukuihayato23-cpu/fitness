@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '6';
+  const APP_VERSION = '7';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -17,7 +17,8 @@
   function defaultState() {
     return {
       profile: null, plan: null, logs: [], meals: {}, customFoods: [], weights: [], active: null,
-      prefs: { mealLevel: 'both', mealSlots: ['breakfast', 'lunch', 'dinner', 'snack'] },
+      prefs: { mealLevel: 'both', mealSlots: ['breakfast', 'lunch', 'dinner', 'snack'], useFridge: true },
+      fridge: [],
       planSlots: {},
     };
   }
@@ -46,6 +47,7 @@
     selQty: 1,
     mealView: 'log',
     planPick: {},
+    fridgeQuery: '',
     quick: { parts: [], minutes: 45, variant: 0, result: null },
     openLog: null,
   };
@@ -716,18 +718,62 @@
   }
 
   // 1品の料理に主食・副菜・汁物を合わせ、目標(T=[kcal,P,F,C])に近づける
+  // ---------- 冷蔵庫 ----------
+  const INGR_NAMES = INGREDIENTS.map((i) => i.name);
+  function matchIngredient(text) {
+    const q = norm(text.replace(/\s+/g, ''));
+    if (!q) return null;
+    const hit = INGREDIENTS.find((i) => norm(i.name) === q) ||
+      INGREDIENTS.find((i) => [i.name].concat(i.k.split(' ')).filter(Boolean).some((w) => norm(w).includes(q) || q.includes(norm(w))));
+    return hit ? hit.name : null;
+  }
+  function daysLeft(exp) {
+    if (!exp) return null;
+    const [y, m, d] = exp.split('-').map(Number);
+    const [ty, tm, td] = today().split('-').map(Number);
+    return Math.round((new Date(y, m - 1, d) - new Date(ty, tm - 1, td)) / 86400000);
+  }
+  function fridgeOn() { return state.fridge.length > 0 && state.prefs.useFridge !== false; }
+  // 冷蔵庫にある食材 → 重み(期限が近いものほど優先して使う)
+  function fridgeWeights() {
+    const w = {};
+    state.fridge.forEach((it) => {
+      if (!it.key) return;
+      const dl = daysLeft(it.exp);
+      const v = dl !== null && dl <= 2 ? 2 : 1;
+      w[it.key] = Math.max(w[it.key] || 0, v);
+    });
+    return w;
+  }
+  function fridgeMatch(uses, weights) {
+    const hit = (uses || []).filter((u) => weights[u]);
+    return { hit, miss: (uses || []).filter((u) => !weights[u]), w: hit.reduce((n, u) => n + weights[u], 0) };
+  }
+  function pickByFridge(list, seed) {
+    if (!fridgeOn() || !list.length) return rotate(list, seed);
+    const w = fridgeWeights();
+    const best = Math.max.apply(null, list.map((x) => fridgeMatch(x.uses, w).w));
+    return best > 0 ? rotate(list.filter((x) => fridgeMatch(x.uses, w).w === best), seed) : rotate(list, seed);
+  }
+  function mealFridgeHits(sl) {
+    if (!fridgeOn()) return [];
+    const w = fridgeWeights();
+    const uses = [].concat(sl.dish.uses || [], ...sl.items.map((it) => (it.side && it.side.uses) || (it.soup && it.soup.uses) || []));
+    return Array.from(new Set(uses.filter((u) => w[u])));
+  }
+
   function composeMeal(dish, slot, T, seed, pref) {
     const fixed = [];
     const staple = stapleItem(dish.staple);
     if (staple) fixed.push(staple);
     let side = null;
     if (slot === 'lunch' || slot === 'dinner') {
-      if (dish.staple === 'rice') side = rotate(SIDES.filter((x) => levelOk(x, pref)), seed);
+      if (dish.staple === 'rice') side = pickByFridge(SIDES.filter((x) => levelOk(x, pref)), seed);
       else if (dish.staple === 'pasta') side = SIDES.find((x) => x.name === 'トマトとレタスのサラダ');
       else if (dish.staple === 'udon' || dish.staple === 'soba') side = SIDES.find((x) => x.name === 'ほうれん草のおひたし');
     }
     const soups = (slot !== 'snack' && SOUPS[dish.staple]) ? SOUPS[dish.staple].filter((x) => levelOk(x, pref)) : [];
-    const soup = rotate(soups, seed + 1);
+    const soup = pickByFridge(soups, seed + 1);
     if (soup) fixed.push({ name: soup.name, amount: '1杯', n: soup.n });
 
     const build = (m, withSide, addons) => {
@@ -735,7 +781,7 @@
       if (staple) items.push(staple);
       items.push({ name: dish.name, amount: m === 1 ? '1人前' : m + '人前', n: scaleN(dish.n, m), main: true });
       if (withSide && side) items.push({ name: side.name, amount: '1皿', n: side.n, side });
-      if (soup) items.push({ name: soup.name, amount: '1杯', n: soup.n });
+      if (soup) items.push({ name: soup.name, amount: '1杯', n: soup.n, soup });
       addons.forEach((a) => items.push({ name: a.name, amount: a.unit, n: a.n, addon: true }));
       const total = items.reduce((acc, it) => addN(acc, it.n), [0, 0, 0, 0]);
       return { dish, m, items, total, score: mealScore(total, T) };
@@ -783,15 +829,27 @@
     const wsum = openSlots.reduce((n, k) => n + SLOT_WEIGHT[k], 0);
     const seed = Number(ui.mealDate.replace(/-/g, '')) % 97;
     const slots = {};
+    const usedDishes = new Set();
     if (rem[0] >= 150) {
       openSlots.forEach((slot, i) => {
         const T = scaleN(rem, SLOT_WEIGHT[slot] / wsum);
         let dishes = DISHES.filter((d) => d.slots.includes(slot) && (pref === 'both' || d.level === pref));
         if (!dishes.length) dishes = DISHES.filter((d) => d.slots.includes(slot));
-        const ranked = dishes.map((d) => composeMeal(d, slot, T, seed + i, pref)).sort((a, b) => a.score - b.score);
+        const fw = fridgeOn() ? fridgeWeights() : {};
+        const ranked = dishes.map((d) => {
+          const r = composeMeal(d, slot, T, seed + i, pref);
+          // 冷蔵庫の食材を使う献立ほど上位にする
+          // 一人暮らしで買い足しが多いと使い切れないので、足りない食材が多い料理は下げる
+          r.rank = r.score - 0.12 * mealFridgeHits(r).reduce((n, u) => n + (fw[u] || 0), 0)
+            + (fridgeOn() ? 0.05 * (d.uses || []).filter((u) => !fw[u]).length : 0);
+          return r;
+        }).sort((a, b) => a.rank - b.rank)
+          // 同じ日に同じ料理が重ならないようにする
+          .filter((r, _, all) => !usedDishes.has(r.dish.name) || all.every((x) => usedDishes.has(x.dish.name)));
         // 日替わりで選ぶのは、いちばん合うものと大差ない候補だけ
-        const good = Math.max(1, ranked.filter((r) => r.score <= ranked[0].score + 0.15).length);
+        const good = Math.max(1, ranked.filter((r) => r.rank <= ranked[0].rank + 0.15).length);
         const pick = ranked[(seed % good + (ui.planPick[slot] || 0)) % ranked.length];
+        usedDishes.add(pick.dish.name);
         slots[slot] = Object.assign(pick, { T });
       });
     }
@@ -810,6 +868,9 @@
       ${same ? '' : '<button class="btn tiny ghost" data-action="plan-slot-default">この組み合わせをいつもの設定にする</button>'}
       <div class="field-label" style="margin-top:12px">料理の手間</div>
       <div class="chips">${Object.entries(LEVELS).map(([k, l]) => chip('plan-level', k, l, pref === k)).join('')}</div>
+      ${state.fridge.length
+        ? `<label class="check-label"><input type="checkbox" data-use-fridge ${state.prefs.useFridge !== false ? 'checked' : ''}> 冷蔵庫の食材(${state.fridge.length}品)を優先して使う</label>`
+        : '<p class="muted small">「冷蔵庫」で食材を登録すると、それを使う献立を優先して提案します。</p>'}
     </section>
     <section class="card">
       <h3>目標 ${plan.t.kcal}kcal から逆算した献立</h3>
@@ -840,6 +901,8 @@
       const sideItem = sl.items.find((it) => it.side);
       html += `<section class="card plan-slot">
         <header class="day-head"><h3>${label}</h3><span class="muted small">目安 ${Math.round(sl.T[0])}kcal</span></header>
+        ${mealFridgeHits(sl).length ? `<p class="fridge-hit small">🧊 冷蔵庫から: ${mealFridgeHits(sl).map(esc).join('・')}</p>` : ''}
+        ${fridgeOn() && (d.uses || []).some((u) => !fridgeWeights()[u]) ? `<p class="muted small fridge-buy">🛒 買い足すもの: ${(d.uses || []).filter((u) => !fridgeWeights()[u]).map(esc).join('・')}</p>` : ''}
         <div class="dish-title"><strong>${esc(d.name)}</strong><span class="lv ${d.level}">${d.level === 'easy' ? '簡単' : '手の込んだ'}・${d.min}分</span></div>
         <ul class="food-list">${sl.items.map((it) => `<li><span>${it.addon ? '＋ ' : ''}${esc(it.name)} <b>${esc(it.amount)}</b></span><span class="muted small">${Math.round(it.n[0])}kcal</span></li>`).join('')}</ul>
         <p class="plan-total"><b>${Math.round(sl.total[0])}kcal</b> <span class="muted small">P${round(sl.total[1], 1)} F${round(sl.total[2], 1)} C${round(sl.total[3], 1)}</span></p>
@@ -880,15 +943,100 @@
     </div>`;
   }
 
+  function expBadge(exp) {
+    const dl = daysLeft(exp);
+    if (dl === null) return '';
+    if (dl < 0) return '<span class="exp bad">期限切れ</span>';
+    if (dl === 0) return '<span class="exp bad">今日まで</span>';
+    if (dl <= 2) return `<span class="exp soon">あと${dl}日</span>`;
+    return `<span class="exp">あと${dl}日</span>`;
+  }
+
+  function fridgeChips() {
+    const have = new Set(state.fridge.map((it) => it.key).filter(Boolean));
+    const q = norm(ui.fridgeQuery.replace(/\s+/g, ''));
+    const list = q ? INGREDIENTS.filter((i) => norm(i.name + ' ' + i.k).includes(q)) : INGREDIENTS;
+    let html = '';
+    let cat = null;
+    list.forEach((i) => {
+      if (!q && i.cat !== cat) { cat = i.cat; html += `<div class="fr-cat muted small">${esc(cat)}</div>`; }
+      html += chip('fr-toggle', i.name, (have.has(i.name) ? '✓ ' : '') + i.name, have.has(i.name));
+    });
+    if (q && !list.length) {
+      html += `<button class="chip add-free" data-action="fr-add-text">＋「${esc(ui.fridgeQuery.trim())}」を追加</button>`;
+    }
+    return html || '<p class="muted small">見つかりません</p>';
+  }
+
+  function fridgeRecipes() {
+    const w = fridgeWeights();
+    const rank = (list) => list.map((d) => Object.assign({ d }, fridgeMatch(d.uses, w)))
+      .filter((r) => r.hit.length)
+      .sort((a, b) => b.w - a.w || a.miss.length - b.miss.length);
+    return { dishes: rank(DISHES).slice(0, 12), sides: rank(SIDES).slice(0, 5) };
+  }
+
+  function viewFridge() {
+    const items = state.fridge.slice().sort((a, b) => {
+      const da = daysLeft(a.exp), db = daysLeft(b.exp);
+      return (da === null ? 999 : da) - (db === null ? 999 : db);
+    });
+    let html = `<section class="card">
+      <header class="day-head"><h3>冷蔵庫の中身</h3><span class="muted small">${items.length}品</span></header>
+      ${items.length ? `<ul class="fr-list">${items.map((it) => `<li>
+          <div class="fr-name"><strong>${esc(it.name)}</strong>${expBadge(it.exp)}${it.key ? '' : '<span class="muted small">(レシピ検索の対象外)</span>'}<button class="btn tiny ghost fr-del" data-action="fr-del" data-id="${it.id}">使い切った</button></div>
+          <div class="fr-edit">
+            <input type="text" value="${esc(it.note)}" data-fr-note="${it.id}" placeholder="量のメモ(半分など)" aria-label="${esc(it.name)}の量のメモ">
+            <label class="fr-exp"><span class="muted small">期限</span><input type="date" value="${esc(it.exp)}" data-fr-exp="${it.id}" aria-label="${esc(it.name)}の賞味期限"></label>
+          </div></li>`).join('')}</ul>`
+        : '<p class="muted small">まだ何も登録されていません。下から冷蔵庫にある食材を選んでください。</p>'}
+      <p class="muted small">賞味期限を入れると、期限が近いものから優先して使う献立を提案します。</p>
+    </section>
+    <section class="card">
+      <h3>食材を登録</h3>
+      <p class="muted small">ボタンを押すと冷蔵庫に入ります(もう一度押すと外れます)。</p>
+      <input type="search" placeholder="食材を検索(例: たまねぎ)" value="${esc(ui.fridgeQuery)}" data-fr-query>
+      <div class="chips fr-chips" id="fr-chips">${fridgeChips()}</div>
+    </section>`;
+    if (!items.length) return html;
+    const r = fridgeRecipes();
+    const recipeRow = (x, isSide) => `<li class="fr-recipe">
+        <div class="dish-title"><strong>${esc(x.d.name)}</strong>${isSide ? '<span class="lv">副菜</span>' : `<span class="lv ${x.d.level}">${x.d.level === 'easy' ? '簡単' : '手の込んだ'}・${x.d.min}分</span>`}</div>
+        <div class="small"><span class="ok-text">✓ ${x.hit.map(esc).join('・')}</span>${x.miss.length ? `　<span class="muted">足りない: ${x.miss.map(esc).join('・')}</span>` : '　<b class="ok-text">全部そろっています</b>'}</div>
+        <details class="recipe"><summary>${isSide ? '材料' : '作り方を見る'}</summary>
+          <p class="small">${esc(x.d.ing)}</p>
+          ${x.d.steps ? `<ol class="small">${x.d.steps.map((st) => `<li>${esc(st)}</li>`).join('')}</ol>
+          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(x.d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで詳しいレシピを探す ↗</a>` : ''}
+        </details></li>`;
+    html += `<section class="card">
+      <h3>冷蔵庫の食材で作れるレシピ</h3>
+      <p class="muted small">冷蔵庫の食材を多く使えるもの(期限が近い食材は優先)から順に並べています。調味料は家にあるものとしています。</p>
+      ${r.dishes.length ? `<ul class="fr-recipes">${r.dishes.map((x) => recipeRow(x, false)).join('')}</ul>` : '<p class="muted small">登録した食材を使うレシピがまだありません。</p>'}
+      ${r.sides.length ? `<h3 style="margin-top:14px">あと一品(副菜)</h3><ul class="fr-recipes">${r.sides.map((x) => recipeRow(x, true)).join('')}</ul>` : ''}
+      <button class="btn primary block" data-action="meal-view" data-v="plan">冷蔵庫の食材で献立を提案してもらう</button>
+    </section>`;
+    return html;
+  }
+
+  function addFridge(name) {
+    state.fridge.push({ id: String(Date.now()) + Math.floor(Math.random() * 1000), name, key: matchIngredient(name), note: '', exp: '' });
+    save();
+  }
+  function refreshFridgeChips() {
+    const el = document.getElementById('fr-chips');
+    if (el) el.innerHTML = fridgeChips();
+  }
+
   function viewMeals() {
     const t = nutritionTargets();
     const items = state.meals[ui.mealDate] || [];
     const total = sumMeals(items);
     const remain = t.kcal - total.kcal;
     const head = `<h1 class="page-title">食事管理</h1>
-      <div class="seg">${[['log', '記録'], ['plan', '献立提案']].map(([k, l]) => `<button class="${ui.mealView === k ? 'on' : ''}" data-action="meal-view" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['log', '記録'], ['plan', '献立提案'], ['fridge', '冷蔵庫']].map(([k, l]) => `<button class="${ui.mealView === k ? 'on' : ''}" data-action="meal-view" data-v="${k}">${l}</button>`).join('')}</div>
       <div class="date-nav"><button class="icon-btn" data-action="meal-date" data-d="-1">‹</button><strong>${fmtDate(ui.mealDate)}${ui.mealDate === today() ? ' 今日' : ''}</strong><button class="icon-btn" data-action="meal-date" data-d="1">›</button></div>`;
     if (ui.mealView === 'plan') return head + viewMealPlan();
+    if (ui.mealView === 'fridge') return head.replace(/<div class="date-nav">[\s\S]*?<\/div>/, '') + viewFridge();
     return head + `
       <section class="card">
         <div class="kcal-big"><span class="muted small">残り</span><b class="${remain < 0 ? 'neg' : ''}">${Math.round(remain)}</b><span>kcal</span></div>
@@ -1134,6 +1282,19 @@
         save(); render(); toast('いつも食べる食事を保存しました'); break;
       case 'plan-level': state.prefs.mealLevel = d.value; ui.planPick = {}; save(); render(); break;
       case 'plan-reroll': ui.planPick[d.slot] = (ui.planPick[d.slot] || 0) + 1; render(); break;
+      case 'fr-toggle': {
+        const has = state.fridge.some((it) => it.key === d.value);
+        if (has) { state.fridge = state.fridge.filter((it) => it.key !== d.value); toast(d.value + 'を冷蔵庫から外しました'); }
+        else { addFridge(d.value); toast(d.value + 'を冷蔵庫に入れました'); }
+        save(); render(); break;
+      }
+      case 'fr-add-text': {
+        const name = ui.fridgeQuery.trim();
+        if (!name) break;
+        addFridge(name); ui.fridgeQuery = '';
+        render(); toast(name + 'を冷蔵庫に入れました'); break;
+      }
+      case 'fr-del': state.fridge = state.fridge.filter((it) => it.id !== d.id); save(); render(); break;
       case 'plan-log': {
         const sl = mealPlan().slots[d.slot];
         if (!sl) break;
@@ -1141,6 +1302,21 @@
         sl.items.forEach((it) => list.push({ cat: d.slot, name: it.name, unit: '', amount: it.amount, qty: 1, kcal: it.n[0], p: it.n[1], f: it.n[2], c: it.n[3] }));
         save(); render();
         toast(MEAL_CATS[d.slot] + 'に「' + sl.dish.name + '」の献立を記録しました');
+        // 使った冷蔵庫の食材のうち、使い切ったものを外せるようにする
+        const used = mealFridgeHits(sl);
+        if (used.length) {
+          showModal('<h3>使い切った食材は？</h3><p class="small">チェックした食材を冷蔵庫から外します。残っているものはチェックを外したままにしてください。</p>' +
+            used.map((u) => `<label class="check-label"><input type="checkbox" value="${esc(u)}" data-used> ${esc(u)}</label>`).join('') +
+            '<div class="modal-actions"><button class="btn ghost" data-modal="close">全部残っている</button><button class="btn primary" data-used-ok>外す</button></div>',
+            (wrap) => {
+              wrap.querySelector('[data-used-ok]').addEventListener('click', () => {
+                const done = Array.from(wrap.querySelectorAll('[data-used]:checked')).map((x) => x.value);
+                state.fridge = state.fridge.filter((it) => !done.includes(it.key));
+                save(); closeModal(); render();
+                if (done.length) toast(done.join('・') + 'を冷蔵庫から外しました');
+              });
+            });
+        }
         break;
       }
       case 'custom-del':
@@ -1227,6 +1403,11 @@
       state.active.entries[Number(ei)].sets[Number(si)][k] = t.value; save(); return;
     }
     if (t.hasAttribute('data-active-note')) { state.active.note = t.value; save(); return; }
+    if (t.dataset.frNote) { const it = state.fridge.find((x) => x.id === t.dataset.frNote); if (it) { it.note = t.value; save(); } return; }
+    if (t.hasAttribute('data-fr-query')) {
+      if (ev.isComposing) return;
+      ui.fridgeQuery = t.value; refreshFridgeChips(); return;
+    }
     if (t.hasAttribute('data-food-query')) {
       // 入力欄ごと描き直すと日本語入力中に文字が二重になるので、候補リストだけ更新する
       // 変換中は触らず、確定(compositionend)したときに更新する
@@ -1242,11 +1423,14 @@
   }
   app.addEventListener('compositionend', (ev) => {
     if (ev.target.hasAttribute && ev.target.hasAttribute('data-food-query')) updateFoodPick(ev.target);
+    if (ev.target.hasAttribute && ev.target.hasAttribute('data-fr-query')) { ui.fridgeQuery = ev.target.value; refreshFridgeChips(); }
   });
 
   app.addEventListener('change', (ev) => {
     const t = ev.target;
     if (t.hasAttribute('data-active-date')) { state.active.date = t.value || today(); save(); return; }
+    if (t.dataset.frExp) { const it = state.fridge.find((x) => x.id === t.dataset.frExp); if (it) { it.exp = t.value; save(); render(); } return; }
+    if (t.hasAttribute('data-use-fridge')) { state.prefs.useFridge = t.checked; ui.planPick = {}; save(); render(); return; }
     if (t.hasAttribute('data-import') && t.files[0]) {
       const reader = new FileReader();
       reader.onload = () => {

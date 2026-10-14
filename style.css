@@ -300,7 +300,7 @@ label.btn { cursor: pointer; }
   font-size: 14px; font-weight: 600; max-width: calc(100% - 32px); box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
 }
 /* meal view switch */
-.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; margin-bottom: 12px; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--line); border-radius: 10px; padding: 3px; margin-bottom: 12px; }
 .seg button { border: 0; background: transparent; border-radius: 8px; padding: 8px; font-weight: 700; cursor: pointer; color: var(--muted); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .plan-slot .food-list b { font-weight: 700; color: var(--accent-text); margin-left: 4px; }
@@ -318,3 +318,26 @@ label.btn { cursor: pointer; }
 .recipe a { color: var(--accent-text); }
 
 .warn-card { background: var(--accent-soft); border-color: var(--accent); }
+
+/* fridge */
+.fr-list { list-style: none; margin: 0; padding: 0; }
+.fr-list li { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 6px; }
+.fr-list li:first-child { border-top: 0; }
+.fr-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fr-del { margin-left: auto; }
+.fr-edit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.fr-edit input { padding: 6px 8px; font-size: 16px; min-height: 36px; }
+.fr-exp { display: flex; align-items: center; gap: 4px; }
+.fr-exp input { width: 9.5em; }
+.exp { font-size: 11px; font-weight: 700; border-radius: 99px; padding: 1px 8px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.exp.soon { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }
+.exp.bad { color: var(--on-accent); background: var(--danger); border-color: var(--danger); }
+.fr-chips { margin-top: 10px; }
+.fr-cat { flex-basis: 100%; margin-top: 4px; }
+.chip.add-free { border-style: dashed; }
+.fr-recipes { list-style: none; margin: 0; padding: 0; }
+.fr-recipe { border-top: 1px solid var(--line); padding: 10px 0; }
+.fr-recipe:first-child { border-top: 0; }
+.ok-text { color: var(--ok); }
+.fridge-hit { margin: 0 0 4px; color: var(--ok); font-weight: 600; }
+.fridge-buy { margin: 0 0 4px; }
