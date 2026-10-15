@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -49,6 +49,7 @@
     mealView: 'log',
     planPick: {},
     fridgeQuery: '',
+    photo: null,
     quick: { parts: [], minutes: 45, variant: 0, result: null },
     openLog: null,
   };
@@ -815,18 +816,26 @@
     const soup = pickByFridge(soups, seed + 1);
     if (soup) fixed.push({ name: soup.name, amount: '1杯', n: soup.n });
 
-    const build = (m, withSide, addons) => buildMeal(dish, m, withSide ? side : null, soup, addons, T);
+    let useSoup = true;
+    const build = (m, withSide, addons) => buildMeal(dish, m, withSide ? side : null, useSoup ? soup : null, addons, T);
 
     let best = null;
-    [true, false].forEach((withSide) => {
-      if (!withSide && !side) return;
-      (dish.portions || PORTIONS).forEach((m) => {
-        const r = build(m, withSide, []);
-        // 副菜は基本つける。外すのは多すぎる時だけ
-        if (!withSide) r.score += 0.05;
-        if (!best || r.score < best.score) best = r;
+    let bestSoup = true;
+    [true, false].forEach((withSoup) => {
+      if (!withSoup && !soup) return;
+      useSoup = withSoup;
+      [true, false].forEach((withSide) => {
+        if (!withSide && !side) return;
+        (dish.portions || PORTIONS).forEach((m) => {
+          const r = build(m, withSide, []);
+          // 副菜・汁物は基本つける。外すのは目標を超える時だけ
+          if (!withSide) r.score += 0.05;
+          if (!withSoup) r.score += 0.04;
+          if (!best || r.score < best.score) { best = r; bestSoup = withSoup; }
+        });
       });
     });
+    useSoup = bestSoup;
     // 足りなければ「もう一品」を最大2つ足す
     const addons = [];
     const maxAddons = T[0] > 900 ? 3 : 2;
@@ -883,7 +892,7 @@
           // 同じ日に同じ料理が重ならないようにする
           .filter((r, _, all) => !usedDishes.has(r.dish.name) || all.every((x) => usedDishes.has(x.dish.name)));
         // 日替わりで選ぶのは、いちばん合うものと大差ない候補だけ
-        const good = Math.max(1, ranked.filter((r) => r.rank <= ranked[0].rank + 0.15).length);
+        const good = Math.max(1, ranked.filter((r) => r.rank <= ranked[0].rank + 0.08).length);
         const pick = ranked[(seed % good + (ui.planPick[slot] || 0)) % ranked.length];
         usedDishes.add(pick.dish.name);
         slots[slot] = Object.assign(pick, { T });
@@ -1074,6 +1083,126 @@
     if (el) el.innerHTML = fridgeChips();
   }
 
+  // ---------- 写真から食事を分析(Claudeに画像を送れる環境=Artifact版のみ) ----------
+  let sampleFn = null;
+  function initPhotoAnalysis() {
+    if (!window.claude || typeof window.claude.use !== 'function') return;
+    window.claude.use('sample').then(async (s) => {
+      if (!s) return;
+      const lim = await s.limits().catch(() => null);
+      if (!lim || !lim.images) return;
+      sampleFn = s;
+      ui.photoTypes = lim.images.mediaTypes.join(',');
+      if (state.profile && !ui.ob && ui.tab === 'meals' && ui.mealView === 'log') {
+        const el = document.getElementById('photo-area');
+        if (el) el.innerHTML = photoBlock();
+      }
+    }).catch(() => {});
+  }
+
+  function photoBlock() {
+    if (!sampleFn) {
+      return window.claude ? '' : '<p class="muted small">📷 写真から自動で分析する機能は、claude.ai のArtifact版で使えます。</p>';
+    }
+    const ph = ui.photo;
+    if (!ph) {
+      return `<label class="btn ghost block photo-btn">📷 写真から追加(AIが分析)<input type="file" accept="${esc(ui.photoTypes || 'image/*')}" data-photo-file hidden></label>`;
+    }
+    let html = `<div class="photo-box">
+      <img src="${ph.url}" alt="選んだ食事の写真" class="photo-preview">`;
+    if (ph.status === 'idle' || ph.status === 'error') {
+      html += `<input type="text" value="${esc(ph.memo || '')}" data-photo-memo placeholder="補足(任意): 例「ご飯は半分残した」「大盛り」">
+        ${ph.status === 'error' ? `<p class="error small">${esc(ph.error)}</p>` : ''}
+        <div class="row-btns"><button class="btn ghost" data-action="photo-cancel">やめる</button><button class="btn primary" data-action="photo-analyze">分析する</button></div>`;
+    } else if (ph.status === 'busy') {
+      html += `<p class="small"><span class="spinner"></span> 写真を分析しています…(10〜60秒ほどかかります)</p>
+        <div class="row-btns"><button class="btn ghost" data-action="photo-stop">止める</button></div>`;
+    } else if (ph.status === 'done') {
+      if (!ph.items.length) {
+        html += `<p class="small">${esc(ph.note || '料理が見つかりませんでした。')}</p>
+          <div class="row-btns"><button class="btn ghost" data-action="photo-cancel">閉じる</button></div>`;
+      } else {
+        html += `<p class="small muted">推定結果です。数値は直せます。チェックした料理だけ追加します。</p>
+          <ul class="photo-items">${ph.items.map((it, i) => `<li>
+            <label class="photo-row-head"><input type="checkbox" data-ph="${i}:on" ${it.on ? 'checked' : ''}>
+              <input type="text" value="${esc(it.name)}" data-ph="${i}:name" aria-label="料理名"></label>
+            <div class="muted small">${esc(it.amount)}</div>
+            <div class="photo-nums">
+              ${[['kcal', 'kcal'], ['p', 'P'], ['f', 'F'], ['c', 'C']].map(([k, l]) => `<label><span>${l}</span><input type="number" inputmode="decimal" value="${it[k]}" data-ph="${i}:${k}"></label>`).join('')}
+            </div></li>`).join('')}</ul>
+          <p class="small" id="photo-total">${photoTotalText()}</p>
+          ${ph.note ? `<p class="muted small">💡 ${esc(ph.note)}</p>` : ''}
+          <div class="row-btns"><button class="btn ghost" data-action="photo-cancel">やめる</button><button class="btn primary" data-action="photo-add">${MEAL_CATS[ui.mealCat]}に追加</button></div>`;
+      }
+    }
+    return html + '</div>';
+  }
+
+  function photoTotalText() {
+    const on = ui.photo.items.filter((it) => it.on);
+    const t = on.reduce((a, it) => [a[0] + (num(it.kcal) || 0), a[1] + (num(it.p) || 0), a[2] + (num(it.f) || 0), a[3] + (num(it.c) || 0)], [0, 0, 0, 0]);
+    return `合計 <b>${Math.round(t[0])}kcal</b>　P${round(t[1], 1)} F${round(t[2], 1)} C${round(t[3], 1)}`;
+  }
+
+  function refreshPhoto() {
+    const el = document.getElementById('photo-area');
+    if (el) el.innerHTML = photoBlock();
+  }
+
+  const PHOTO_ERRORS = {
+    not_granted: 'Claudeの利用が許可されませんでした。もう一度使うにはページを開き直してください。',
+    rate_limited: '利用が集中しているか、Claudeの利用上限に達しました。少し時間をおいて試してください。',
+    image_rejected: 'この画像は読み込めませんでした。JPEGかPNGの写真で試してください。',
+    refused: 'この写真は分析できませんでした。食事が写った写真で試してください。',
+    invalid_json: '分析結果をうまく読み取れませんでした。もう一度「分析する」を押してください。',
+    session_expired: 'ログインの有効期限が切れました。claude.ai にログインし直してください。',
+  };
+
+  async function analyzePhoto() {
+    const ph = ui.photo;
+    if (!ph || !sampleFn) return;
+    ph.status = 'busy';
+    ph.ctl = new AbortController();
+    refreshPhoto();
+    const names = FOODS.map((f) => f.name).join('、');
+    const prompt = `あなたは管理栄養士です。添付した写真に写っている食事を分析してください。
+写っている料理・食品ごとに、名前、見た目から推定した量、エネルギー(kcal)、たんぱく質P(g)、脂質F(g)、炭水化物C(g)を推定します。
+- 日本の一般的な1人前の分量と日本食品標準成分表を基準に、器の大きさや量から推定する
+- 定食のように複数の料理があれば、料理ごとに分ける(ご飯・汁物・副菜も別々に)
+- 次の一覧に同じ料理があれば、その名前を使う: ${names}
+- 写真が食事でない場合は items を空にして、note に理由を書く
+${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
+次の形のJSONだけで答えてください(数値は数字のみ):
+{"items":[{"name":"ビビンバ","amount":"1杯(ご飯約200g)","kcal":590,"p":20,"f":18,"c":86}],"note":"推定の根拠や注意点を1〜2文で"}`;
+    try {
+      const res = await sampleFn.json(prompt, { images: [ph.file], signal: ph.ctl.signal });
+      if (ui.photo !== ph) return;
+      const items = Array.isArray(res && res.items) ? res.items : [];
+      ph.items = items.slice(0, 12).map((it) => ({
+        on: true,
+        name: String((it && it.name) || '不明な料理').slice(0, 40),
+        amount: String((it && it.amount) || '').slice(0, 40),
+        kcal: Math.max(0, Math.round(num(it && it.kcal) || 0)),
+        p: Math.max(0, round(num(it && it.p) || 0, 1)),
+        f: Math.max(0, round(num(it && it.f) || 0, 1)),
+        c: Math.max(0, round(num(it && it.c) || 0, 1)),
+      }));
+      ph.note = String((res && res.note) || '').slice(0, 200);
+      ph.status = 'done';
+    } catch (e) {
+      if (ui.photo !== ph) return;
+      const code = e && e.code;
+      if (code === 'cancelled') { ph.status = 'idle'; }
+      else if (['sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(code)) {
+        sampleFn = null; ui.photo = null;
+      } else {
+        ph.status = 'error';
+        ph.error = PHOTO_ERRORS[code] || '分析に失敗しました。通信状況を確認して、もう一度試してください。';
+      }
+    }
+    refreshPhoto();
+  }
+
   function viewMeals() {
     const t = nutritionTargets();
     const items = state.meals[ui.mealDate] || [];
@@ -1108,6 +1237,7 @@
       <section class="card" id="food-add">
         <h3>食べたものを追加</h3>
         <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('meal-cat', k, l, ui.mealCat === k)).join('')}</div>
+        <div id="photo-area">${photoBlock()}</div>
         <input type="search" placeholder="食品を検索(例: はむ、ぎゅうどん)" value="${esc(ui.foodQuery)}" data-food-query>
         <div class="chips scroll">${foodCatChips()}</div>
         <div id="sel-area">${selPanel()}</div>
@@ -1343,6 +1473,23 @@
         addFridge(name); ui.fridgeQuery = '';
         render(); toast(name + 'を冷蔵庫に入れました'); break;
       }
+      case 'photo-analyze': analyzePhoto(); break;
+      case 'photo-stop': if (ui.photo && ui.photo.ctl) ui.photo.ctl.abort(); break;
+      case 'photo-cancel':
+        if (ui.photo) { if (ui.photo.ctl) ui.photo.ctl.abort(); URL.revokeObjectURL(ui.photo.url); }
+        ui.photo = null; refreshPhoto(); break;
+      case 'photo-add': {
+        const ph = ui.photo;
+        const on = ph ? ph.items.filter((it) => it.on && it.name.trim()) : [];
+        if (!on.length) { notify('追加する料理にチェックを入れてください'); break; }
+        const list = state.meals[ui.mealDate] || (state.meals[ui.mealDate] = []);
+        on.forEach((it) => list.push({ cat: ui.mealCat, name: it.name.trim(), unit: '', amount: it.amount, qty: 1, kcal: num(it.kcal) || 0, p: num(it.p) || 0, f: num(it.f) || 0, c: num(it.c) || 0 }));
+        URL.revokeObjectURL(ph.url);
+        ui.photo = null;
+        save(); render();
+        toast(on.length + '品を' + MEAL_CATS[ui.mealCat] + 'に追加しました');
+        break;
+      }
       case 'shop-done': {
         const names = d.items.split(',').filter(Boolean);
         const cur = mealPlan();
@@ -1461,6 +1608,16 @@
       state.active.entries[Number(ei)].sets[Number(si)][k] = t.value; save(); return;
     }
     if (t.hasAttribute('data-active-note')) { state.active.note = t.value; save(); return; }
+    if (t.hasAttribute('data-photo-memo') && ui.photo) { ui.photo.memo = t.value; return; }
+    if (t.dataset.ph && ui.photo) {
+      const [i, k] = t.dataset.ph.split(':');
+      const it = ui.photo.items[Number(i)];
+      if (!it) return;
+      it[k] = k === 'on' ? t.checked : t.value;
+      const tot = document.getElementById('photo-total');
+      if (tot) tot.innerHTML = photoTotalText();
+      return;
+    }
     if (t.dataset.frNote) { const it = state.fridge.find((x) => x.id === t.dataset.frNote); if (it) { it.note = t.value; save(); } return; }
     if (t.hasAttribute('data-fr-query')) {
       if (ev.isComposing) return;
@@ -1484,9 +1641,22 @@
     if (ev.target.hasAttribute && ev.target.hasAttribute('data-fr-query')) { ui.fridgeQuery = ev.target.value; refreshFridgeChips(); }
   });
 
+  // 入力中の欄からボタンを押した時、キーボードが閉じる等で画面がずれてタップが外れないよう先に入力を確定する
+  app.addEventListener('pointerdown', (ev) => {
+    const btn = ev.target.closest('button[data-action]');
+    const cur = document.activeElement;
+    if (btn && cur && cur !== btn && /^(INPUT|TEXTAREA)$/.test(cur.tagName)) cur.blur();
+  });
+
   app.addEventListener('change', (ev) => {
     const t = ev.target;
     if (t.hasAttribute('data-active-date')) { state.active.date = t.value || today(); save(); return; }
+    if (t.hasAttribute('data-photo-file') && t.files && t.files[0]) {
+      const file = t.files[0];
+      ui.photo = { file, url: URL.createObjectURL(file), status: 'idle', items: [], memo: '' };
+      refreshPhoto();
+      return;
+    }
     if (t.dataset.frExp) { const it = state.fridge.find((x) => x.id === t.dataset.frExp); if (it) { it.exp = t.value; save(); render(); } return; }
     if (t.hasAttribute('data-use-fridge')) { state.prefs.useFridge = t.checked; ui.planPick = {}; save(); render(); return; }
     if (t.hasAttribute('data-import') && t.files[0]) {
@@ -1511,4 +1681,5 @@
   }
 
   render();
+  initPhotoAnalysis();
 })();
