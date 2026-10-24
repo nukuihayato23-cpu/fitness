@@ -87,11 +87,11 @@ const EXERCISES = [
 ];
 
 const GOALS = {
-  hypertrophy: { label: '筋肉を大きくしたい', sub: '筋肥大・バルクアップ', icon: '💪' },
-  diet: { label: '体脂肪を落としたい', sub: 'ダイエット・減量', icon: '🔥' },
-  tone: { label: '引き締まった体にしたい', sub: 'ボディメイク・シェイプアップ', icon: '✨' },
-  strength: { label: '力を強くしたい', sub: '筋力向上・挙上重量UP', icon: '🏋️' },
-  health: { label: '健康・体力づくり', sub: '運動不足解消・姿勢改善', icon: '🌱' },
+  hypertrophy: { label: '筋肉を大きくしたい', sub: '筋肥大・バルクアップ' },
+  diet: { label: '体脂肪を落としたい', sub: 'ダイエット・減量' },
+  tone: { label: '引き締まった体にしたい', sub: 'ボディメイク・シェイプアップ' },
+  strength: { label: '力を強くしたい', sub: '筋力向上・挙上重量UP' },
+  health: { label: '健康・体力づくり', sub: '運動不足解消・姿勢改善' },
 };
 
 const EXPERIENCE = {

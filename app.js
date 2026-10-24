@@ -4,7 +4,7 @@
 
   const STORAGE_KEY = 'fitness-app-v1';
   // 更新したら index.html の ?v= と一緒に上げる(古いファイルのキャッシュ対策)
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
   const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
   const WEEK_PATTERNS = {
     1: [2], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 4, 5], 6: [0, 1, 2, 3, 4, 5],
@@ -265,7 +265,7 @@
     notes.push('指定回数の上限が楽にできるようになったら、次回は重量を少し上げましょう(バーベル+2.5kg、ダンベル+1〜2kgが目安)。');
     if (lv === 0) notes.push('最初の2〜3週間は軽めの重さでフォームを覚えることを最優先に。筋肉痛が強い時は休んでOKです。');
     if ((p.goal === 'diet' || p.goal === 'health') && Number(p.minutes) < (p.goal === 'diet' ? 45 : 60)) notes.push('時間が短いので有酸素運動はメニューに入れていません。通勤で一駅歩く・階段を使うなど、日常で歩く量を増やすと効果的です。');
-    if (age >= 50) notes.push('関節に痛みが出る種目は無理せず「↻」で入れ替えましょう。ウォーミングアップは念入りに。');
+    if (age >= 50) notes.push('関節に痛みが出る種目は無理せず「入れ替え」で別の種目にしましょう。ウォーミングアップは念入りに。');
     if (age < 18) notes.push('成長期は重すぎる重量を避け、フォーム重視・自重中心で取り組みましょう。');
     if (p.mode === 'split' && !p.focus.includes('legs')) notes.push('下半身は大きな筋肉が多く、鍛えると代謝アップにも効果的です。余裕があれば脚も加えてみてください。');
     if (p.mode === 'split' && Number(p.days) > p.focus.length * 2) notes.push('同じ部位が続く場合は、筋肉痛が残っていれば軽めにするか休みましょう。');
@@ -384,9 +384,9 @@
   }
 
   function navBar() {
-    const items = [['menu', '🏋️', 'メニュー'], ['log', '📝', '記録'], ['meals', '🍚', '食事'], ['weight', '⚖️', '体重'], ['settings', '⚙️', '設定']];
-    return '<nav class="bottom-nav">' + items.map(([k, ic, lb]) =>
-      `<button class="nav-btn ${ui.tab === k ? 'active' : ''}" data-action="tab" data-tab="${k}"><span class="nav-ic">${ic}</span><span>${lb}</span>${k === 'log' && state.active ? '<span class="dot"></span>' : ''}</button>`
+    const items = [['menu', 'メニュー'], ['log', '記録'], ['meals', '食事'], ['weight', '体重'], ['settings', '設定']];
+    return '<nav class="bottom-nav" aria-label="画面の切り替え">' + items.map(([k, lb]) =>
+      `<button class="nav-btn ${ui.tab === k ? 'active' : ''}" data-action="tab" data-tab="${k}" ${ui.tab === k ? 'aria-current="page"' : ''}>${lb}${k === 'log' && state.active ? '<span class="dot" aria-label="記録中"></span>' : ''}</button>`
     ).join('') + '</nav>';
   }
 
@@ -396,8 +396,8 @@
   }
 
   function choiceCard(field, value, label, sub, icon, selected) {
-    return `<button class="choice ${selected ? 'selected' : ''}" data-action="ob-set" data-field="${field}" data-value="${esc(value)}">
-      ${icon ? `<span class="choice-ic">${icon}</span>` : ''}<span class="choice-text"><strong>${esc(label)}</strong>${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
+    return `<button class="choice ${selected ? 'selected' : ''}" data-action="ob-set" data-field="${field}" data-value="${esc(value)}" aria-pressed="${selected}">
+      <span class="choice-mark" aria-hidden="true"></span><span class="choice-text"><strong>${esc(label)}</strong>${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
   }
   function chip(action, value, label, selected, extra) {
     return `<button class="chip ${selected ? 'selected' : ''}" data-action="${action}" data-value="${esc(value)}" ${extra || ''}>${esc(label)}</button>`;
@@ -411,7 +411,7 @@
     switch (ui.obStep) {
       case 0:
         body = '<h2>どんな目的で筋トレを始めますか？</h2><div class="choices">' +
-          Object.entries(GOALS).map(([k, g]) => choiceCard('goal', k, g.label, g.sub, g.icon, ob.goal === k)).join('') + '</div>';
+          Object.entries(GOALS).map(([k, g]) => choiceCard('goal', k, g.label, g.sub, '', ob.goal === k)).join('') + '</div>';
         break;
       case 1:
         body = `<h2>あなたについて教えてください</h2>
@@ -441,8 +441,8 @@
       case 4: {
         const split = ob.mode === 'split';
         body = '<h2>どんなメニューにしますか？</h2><div class="choices">' +
-          choiceCard('mode', 'balanced', 'おまかせ(全身バランス)', '頻度に合わせて全身を効率よく鍛える。初めての方におすすめ', '⚖️', !split) +
-          choiceCard('mode', 'split', '部位別(分割法)', '鍛えたい部位を選んで、日ごとに部位を分けて集中的に鍛える', '🎯', split) +
+          choiceCard('mode', 'balanced', 'おまかせ(全身バランス)', '頻度に合わせて全身を効率よく鍛える。初めての方におすすめ', '', !split) +
+          choiceCard('mode', 'split', '部位別(分割法)', '鍛えたい部位を選んで、日ごとに部位を分けて集中的に鍛える', '', split) +
           '</div><h2>' + (split ? '鍛えたい部位を選んでください' : '特に鍛えたい部位(任意)') + '</h2>' +
           '<div class="chips">' + PART_KEYS.map((k) => chip('ob-focus', k, PARTS[k], ob.focus.includes(k))).join('') +
           (split ? chip('ob-focus-all', '', 'すべて選択', false) : '') + '</div>' +
@@ -452,13 +452,14 @@
     }
     const isLast = ui.obStep === steps.length - 1;
     app.innerHTML = `<main class="container onboarding">
-      <header class="ob-head"><h1>筋トレメニューを作ろう</h1>
+      <header class="ob-head">
+        <p class="step-label"><span class="num">${ui.obStep + 1}</span> / ${steps.length}　${steps[ui.obStep]}</p>
         <div class="progress"><div style="width:${((ui.obStep + 1) / steps.length) * 100}%"></div></div>
-        <p class="step-label">STEP ${ui.obStep + 1} / ${steps.length}: ${steps[ui.obStep]}</p></header>
-      <section class="card">${body}</section>
-      ${ui.obError ? `<p class="error">${esc(ui.obError)}</p>` : ''}
-      <div class="ob-actions">
-        ${ui.obStep > 0 ? '<button class="btn ghost" data-action="ob-back">戻る</button>' : (state.profile ? '<button class="btn ghost" data-action="ob-cancel">キャンセル</button>' : '<span></span>')}
+      </header>
+      <section class="ob-body">${body}</section>
+      ${ui.obError ? `<p class="error" role="alert">${esc(ui.obError)}</p>` : ''}
+      <div class="ob-actions sticky-actions">
+        ${ui.obStep > 0 ? '<button class="btn ghost" data-action="ob-back">戻る</button>' : (state.profile ? '<button class="btn ghost" data-action="ob-cancel">キャンセル</button>' : '')}
         <button class="btn primary" data-action="ob-next">${isLast ? 'メニューを作成する' : '次へ'}</button>
       </div></main>`;
   }
@@ -503,20 +504,20 @@
     const ex = EX_BY_ID[it.id];
     return `<li class="ex">
       <div class="ex-main">
-        <details><summary><span class="ex-name">${esc(ex.name)}</span> <span class="tag">${esc(PARTS[it.part])}</span></summary><p class="tip">💡 ${esc(ex.tip)}</p></details>
-        <div class="ex-presc"><b>${it.sets}</b>セット × <b>${esc(it.reps)}</b>${ex.timed ? '' : '回'} <span class="muted">休憩${it.rest}秒</span></div>
+        <details><summary><span class="ex-name">${esc(ex.name)}</span> <span class="tag">${esc(PARTS[it.part])}</span></summary><p class="tip">${esc(ex.tip)}</p></details>
+        <div class="ex-presc"><span class="num">${it.sets}</span>セット × <span class="num">${esc(it.reps)}</span>${ex.timed ? '' : '回'}　<span class="muted">休憩${it.rest}秒</span></div>
       </div>
-      ${opts && opts.swap ? `<button class="icon-btn" title="別の種目に入れ替え" data-action="swap" data-day="${opts.day}" data-ex="${opts.idx}">↻</button>` : ''}
+      ${opts && opts.swap ? `<button class="text-btn" data-action="swap" data-day="${opts.day}" data-ex="${opts.idx}" aria-label="${esc(ex.name)}を別の種目に入れ替え">入れ替え</button>` : ''}
     </li>`;
   }
 
   function sessionBlock(s, opts) {
-    const cardioText = s.cardio ? `<li class="ex sub"><div class="ex-main"><span class="ex-name">🏃 有酸素運動 ${s.cardio}分</span><div class="muted small">${state.profile.equipment === 'g' ? 'トレッドミル早歩き・バイクなど' : 'ウォーキング・踏み台昇降など'}(会話できる程度の強度)</div></div></li>` : '';
+    const cardioText = s.cardio ? `<li class="ex sub"><div class="ex-main"><span class="ex-name">有酸素運動 ${s.cardio}分</span><div class="muted small">${state.profile.equipment === 'g' ? 'トレッドミル早歩き・バイクなど' : 'ウォーキング・踏み台昇降など'}(会話できる程度の強度)</div></div></li>` : '';
     return `<ul class="ex-list">
-      <li class="ex sub"><div class="ex-main"><span class="ex-name">🔥 ウォーミングアップ ${s.warm}分</span><div class="muted small">軽い有酸素 + 動的ストレッチ。最初の種目は軽い重さで1〜2セット練習</div></div></li>
+      <li class="ex sub"><div class="ex-main"><span class="ex-name">ウォーミングアップ ${s.warm}分</span><div class="muted small">軽い有酸素 + 動的ストレッチ。最初の種目は軽い重さで1〜2セット練習</div></div></li>
       ${s.exercises.map((it, i) => exerciseRow(it, opts ? { swap: opts.swap, day: opts.day, idx: i } : null)).join('')}
       ${cardioText}
-      <li class="ex sub"><div class="ex-main"><span class="ex-name">🧘 クールダウン ${s.cool}分</span><div class="muted small">使った部位の静的ストレッチ</div></div></li>
+      <li class="ex sub"><div class="ex-main"><span class="ex-name">クールダウン ${s.cool}分</span><div class="muted small">使った部位の静的ストレッチ</div></div></li>
     </ul>
     ${s.dropped.length ? `<p class="warn small">時間の都合で「${s.dropped.map((x) => PARTS[x]).join('・')}」は入りませんでした。時間を増やすか部位を絞ると入ります。</p>` : ''}`;
   }
@@ -525,51 +526,69 @@
     const p = state.profile;
     const plan = state.plan;
     const g = GOALS[p.goal];
-    const summary = `<section class="card summary">
-      <div class="summary-top"><span class="goal-ic">${g.icon}</span><div><div class="muted small">目的</div><strong>${esc(g.label)}</strong></div></div>
-      <div class="summary-tags">
-        <span>${EXPERIENCE[p.experience].label}</span><span>${EQUIPMENT[p.equipment].label}</span>
-        <span>週${p.days}回</span><span>1回${p.minutes}分</span><span>${p.mode === 'split' ? '部位別' : 'おまかせ'}</span>
-      </div>
-      <button class="btn small ghost" data-action="edit-profile">条件を変更</button>
-    </section>`;
+    const todayWd = (new Date().getDay() + 6) % 7;
+    const todayIdx = plan.days.findIndex((d) => d.weekday === todayWd);
+    let hero;
+    if (todayIdx >= 0) {
+      const s = plan.days[todayIdx];
+      hero = `<section class="hero">
+        <p class="eyebrow">今日 ${fmtDate(today())}</p>
+        <h1 class="hero-title">Day${todayIdx + 1}　${esc(s.title)}</h1>
+        <p class="hero-meta"><span class="num">${s.exercises.length}</span>種目・約<span class="num">${s.estMin}</span>分</p>
+        <button class="btn primary block" data-action="start-day" data-day="${todayIdx}">今日のメニューで記録を始める</button>
+      </section>`;
+    } else {
+      const next = plan.days.slice().sort((a, b) => ((a.weekday - todayWd + 7) % 7) - ((b.weekday - todayWd + 7) % 7))[0];
+      const ni = plan.days.indexOf(next);
+      hero = `<section class="hero">
+        <p class="eyebrow">今日 ${fmtDate(today())}</p>
+        <h1 class="hero-title">今日は休養日です</h1>
+        <p class="hero-meta">次は${WEEK[next.weekday]}曜日の Day${ni + 1}　${esc(next.title)}</p>
+        <a class="text-btn" href="#day-${ni}">次のメニューを見る</a>
+      </section>`;
+    }
+    const summary = `<p class="plan-meta">${esc(g.label)}　${EXPERIENCE[p.experience].label}・${EQUIPMENT[p.equipment].label}・週${p.days}回・1回${p.minutes}分
+      <button class="text-btn" data-action="edit-profile">条件を変える</button></p>`;
 
-    const days = plan.days.map((s, di) => `<section class="card day">
-      <header class="day-head">
-        <div><span class="weekday">${WEEK[s.weekday]}</span><h3>Day${di + 1}: ${esc(s.title)}</h3></div>
-        <span class="muted small">約${s.estMin}分</span>
-      </header>
-      ${sessionBlock(s, { swap: true, day: di })}
-      <button class="btn primary block" data-action="start-day" data-day="${di}">このメニューで記録を始める</button>
+    const days = plan.days.map((s, di) => `<section class="day ${di === todayIdx ? 'is-today' : ''}" id="day-${di}">
+      <div class="day-wd" aria-hidden="true">${WEEK[s.weekday]}</div>
+      <div class="day-body">
+        <header class="day-head"><h3>Day${di + 1}　${esc(s.title)}</h3><span class="muted small">約${s.estMin}分</span></header>
+        ${sessionBlock(s, { swap: true, day: di })}
+        ${di === todayIdx ? '' : `<button class="btn ghost" data-action="start-day" data-day="${di}">このメニューで記録を始める</button>`}
+      </div>
     </section>`).join('');
 
-    const notes = `<section class="card"><h3>ポイント</h3><ul class="notes">${plan.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></section>`;
+    const notes = `<section class="sec"><h2 class="sec-h">続けるためのポイント</h2><ul class="notes">${plan.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></section>`;
 
     const q = ui.quick;
-    const quick = `<section class="card">
-      <h3>🎯 今日だけ部位を選んで作る</h3>
-      <p class="muted small">予定とは別に、鍛えたい部位と時間を選んでその日のメニューを作れます。</p>
+    const quick = `<section class="sec">
+      <h2 class="sec-h">今日だけ部位を選んで作る</h2>
+      <p class="muted small">予定とは別に、鍛えたい部位と時間からその日のメニューを作ります。</p>
       <div class="chips">${PART_KEYS.map((k) => chip('quick-part', k, PARTS[k], q.parts.includes(k))).join('')}</div>
       <div class="chips">${MINUTE_OPTIONS.map((m) => chip('quick-min', m, m + '分', q.minutes === m)).join('')}</div>
       <div class="row-btns">
-        <button class="btn primary" data-action="quick-build">メニューを作る</button>
+        <button class="btn ghost" data-action="quick-build">メニューを作る</button>
         ${q.result ? '<button class="btn ghost" data-action="quick-reroll">別の種目で作る</button>' : ''}
       </div>
       ${q.result ? `<div class="quick-result"><p class="muted small">約${q.result.estMin}分</p>${sessionBlock(q.result)}<button class="btn primary block" data-action="start-quick">このメニューで記録を始める</button></div>` : ''}
     </section>`;
 
-    return '<h1 class="page-title">あなたのメニュー</h1>' + summary + days + notes + quick;
+    return hero + summary + `<h2 class="sec-h week-h">今週の予定</h2>` + days + notes + quick;
   }
 
   // ----- 記録画面 -----
   function viewLog() {
     let html = '<h1 class="page-title">トレーニング記録</h1>';
+    const start = (() => { const d = new Date(); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return toDateStr(d); })();
+    const thisWeek = state.logs.filter((l) => l.date >= start).length;
     const a = state.active;
     if (a) {
-      html += `<section class="card active-session">
-        <header class="day-head"><div><span class="weekday">記録中</span><h3>${esc(a.title)}</h3></div>
-        <input type="date" value="${esc(a.date)}" data-active-date class="date-input"></header>
-        <p class="muted small">重さ(kg)と回数を入力。終わったセットは✓をタップ。前回の重さが入っています。</p>
+      html += `<section class="active-session">
+        <p class="eyebrow">記録中</p>
+        <h2 class="hero-title">${esc(a.title)}</h2>
+        <label class="date-line"><span class="muted small">日付</span><input type="date" value="${esc(a.date)}" data-active-date class="date-input"></label>
+        <p class="muted small">重さと回数を入れ、終わったセットは右端のボタンを押します。重さには前回の値が入っています。</p>
         ${a.entries.map((e, ei) => {
           const ex = EX_BY_ID[e.id];
           const prev = lastSetsFor(e.id);
@@ -581,36 +600,36 @@
                 <span class="set-no">${si + 1}</span>
                 <div class="input-unit"><input type="number" inputmode="decimal" step="0.5" value="${esc(s.w)}" data-set="${ei}:${si}:w" placeholder="${ex.equip.length === 1 && ex.equip[0] === 'b' ? '自重' : '重さ'}"><em>kg</em></div>
                 <div class="input-unit"><input type="number" inputmode="numeric" value="${esc(s.r)}" data-set="${ei}:${si}:r" placeholder="回数"><em>${ex.timed ? '秒' : '回'}</em></div>
-                <button class="check ${s.done ? 'on' : ''}" data-action="set-done" data-ei="${ei}" data-si="${si}">✓</button>
+                <button class="check ${s.done ? 'on' : ''}" data-action="set-done" data-ei="${ei}" data-si="${si}" aria-pressed="${s.done}" aria-label="${si + 1}セット目を終了">${s.done ? '済' : '終了'}</button>
               </div>`).join('')}
             </div>
             <div class="row-btns small-gap"><button class="btn tiny ghost" data-action="set-add" data-ei="${ei}">＋セット</button>${e.sets.length > 1 ? `<button class="btn tiny ghost" data-action="set-remove" data-ei="${ei}">−セット</button>` : ''}</div>
           </div>`;
         }).join('')}
-        ${a.cardio ? `<p class="small">🏃 有酸素運動 ${a.cardio}分 も忘れずに！</p>` : ''}
+        ${a.cardio ? `<p class="small">最後に有酸素運動を${a.cardio}分。</p>` : ''}
         <label class="field"><span>メモ</span><textarea data-active-note rows="2" placeholder="調子・気づいたことなど">${esc(a.note)}</textarea></label>
-        <div class="row-btns"><button class="btn ghost" data-action="active-discard">破棄</button><button class="btn primary" data-action="active-save">記録を保存</button></div>
+        <div class="sticky-actions"><button class="btn ghost" data-action="active-discard">破棄</button><button class="btn primary" data-action="active-save">記録を保存</button></div>
       </section>`;
     } else {
-      html += '<section class="card"><p>記録中のトレーニングはありません。<br>「メニュー」タブの各Dayから記録を始められます。</p><button class="btn primary" data-action="tab" data-tab="menu">メニューを見る</button></section>';
+      html += `<section class="hero">
+        <p class="eyebrow">今週</p>
+        <p class="big-stat"><span class="num">${thisWeek}</span><span class="unit">/ ${state.profile.days}回</span></p>
+        <div class="meter"><div style="width:${Math.min(100, (thisWeek / state.profile.days) * 100)}%"></div></div>
+        <p class="muted small">記録中のトレーニングはありません。「メニュー」から記録を始められます。</p>
+        <button class="btn primary block" data-action="tab" data-tab="menu">メニューを開く</button>
+      </section>`;
     }
 
-    // 今週の実施状況
-    const start = (() => { const d = new Date(); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return toDateStr(d); })();
-    const thisWeek = state.logs.filter((l) => l.date >= start).length;
-    html += `<section class="card"><h3>今週の実施 ${thisWeek} / ${state.profile.days} 回</h3>
-      <div class="meter"><div style="width:${Math.min(100, (thisWeek / state.profile.days) * 100)}%"></div></div></section>`;
-
-    html += '<section class="card"><h3>履歴</h3>';
+    html += '<section class="sec"><h2 class="sec-h">これまでの記録</h2>';
     if (!state.logs.length) html += '<p class="muted">まだ記録がありません。</p>';
     html += state.logs.map((l, li) => {
       const open = ui.openLog === li;
       const totalSets = l.entries.reduce((n, e) => n + e.sets.length, 0);
       return `<div class="history-item">
-        <button class="history-head" data-action="toggle-log" data-li="${li}"><span>${fmtDate(l.date)} ${esc(l.title)}</span><span class="muted small">${l.entries.length}種目 ${totalSets}セット ${open ? '▲' : '▼'}</span></button>
+        <button class="history-head" data-action="toggle-log" data-li="${li}"><span>${fmtDate(l.date)} ${esc(l.title)}</span><span class="muted small">${l.entries.length}種目 ${totalSets}セット　${open ? '閉じる' : '開く'}</span></button>
         ${open ? `<div class="history-body">${l.entries.map((e) => `<div><strong>${esc(EX_BY_ID[e.id] ? EX_BY_ID[e.id].name : e.id)}</strong>: ${e.sets.map((s) => (s.w ? s.w + 'kg×' : '') + (s.r || '-')).join(', ')}</div>`).join('')}
           ${l.note ? `<p class="muted small">メモ: ${esc(l.note)}</p>` : ''}
-          <button class="btn tiny danger" data-action="delete-log" data-li="${li}">この記録を削除</button></div>` : ''}
+          <button class="text-btn danger-text" data-action="delete-log" data-li="${li}">この記録を削除</button></div>` : ''}
       </div>`;
     }).join('');
     html += '</section>';
@@ -679,7 +698,7 @@
 
   function foodPickItems() {
     return pickList().map((f, idx) =>
-      `<li class="${ui.selFood && ui.selFood.name === f.name ? 'picked' : ''}"><button data-action="food-select" data-fi="${idx}"><span>${f.custom ? '⭐ ' : ''}${esc(f.name)} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="icon-btn tiny" data-action="custom-del" data-ci="${f.ci}" title="マイ食品から削除">✕</button>` : ''}</li>`
+      `<li class="${ui.selFood && ui.selFood.name === f.name ? 'picked' : ''}"><button data-action="food-select" data-fi="${idx}"><span>${esc(f.name)}${f.custom ? '<small class="mine">マイ</small>' : ''} <small class="muted">${esc(f.unit)}</small></span><span class="muted small">${f.kcal}kcal P${f.p}</span></button>${f.custom ? `<button class="text-btn" data-action="custom-del" data-ci="${f.ci}" aria-label="マイ食品から削除">削除</button>` : ''}</li>`
     ).join('') || '<li class="muted small">見つかりません。ひらがなでも探せます。ない場合は下の「手入力」で追加できます。</li>';
   }
 
@@ -768,10 +787,13 @@
     const have = fridgeHave();
     return mealIngredients(sl).filter((u) => have.has(u));
   }
-  function ingredientChips(list, have) {
-    return list.map((u) => have.has(u)
-      ? `<span class="ing have">✓ ${esc(u)}<small>冷蔵庫にある</small></span>`
-      : `<span class="ing buy">🛒 ${esc(u)}</span>`).join('');
+  function ingredientLines(list, have) {
+    const buy = list.filter((u) => !have.has(u));
+    const got = list.filter((u) => have.has(u));
+    return `<dl class="ingr">
+      ${buy.length ? `<dt>買うもの</dt><dd class="buy">${buy.map(esc).join('・')}</dd>` : ''}
+      ${got.length ? `<dt>冷蔵庫にある</dt><dd>${got.map(esc).join('・')}</dd>` : ''}
+    </dl>`;
   }
 
   function buildMeal(dish, m, side, soup, addons, T) {
@@ -911,64 +933,65 @@
     const allIngr = Array.from(new Set([].concat(...Object.values(plan.slots).map(mealIngredients))));
     const toBuy = allIngr.filter((u) => !have.has(u));
     const fromFridge = allIngr.filter((u) => have.has(u));
-    let html = `<section class="card">
+    let html = `<section class="sec plan-opts">
       <div class="field-label">この日に食べる食事</div>
       <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('plan-slot-toggle', k, l, plan.chosen.includes(k))).join('')}</div>
-      ${same ? '' : '<button class="btn tiny ghost" data-action="plan-slot-default">この組み合わせをいつもの設定にする</button>'}
-      <div class="field-label" style="margin-top:12px">料理の手間</div>
+      ${same ? '' : '<button class="text-btn" data-action="plan-slot-default">この組み合わせをいつもの設定にする</button>'}
+      <div class="field-label">料理の手間</div>
       <div class="chips">${Object.entries(LEVELS).map(([k, l]) => chip('plan-level', k, l, pref === k)).join('')}</div>
       ${state.fridge.length
         ? `<label class="check-label"><input type="checkbox" data-use-fridge ${state.prefs.useFridge !== false ? 'checked' : ''}> 冷蔵庫の食材(${state.fridge.length}品)を優先して使う</label>`
         : '<p class="muted small">「冷蔵庫」で食材を登録すると、それを使う献立を優先して提案します。</p>'}
     </section>
-    <section class="card">
-      <h3>目標 ${plan.t.kcal}kcal から逆算した献立</h3>
+    <section class="hero">
+      <p class="eyebrow">この献立で食べた場合</p>
+      <p class="big-stat"><span class="num">${Math.round(day[0]).toLocaleString()}</span><span class="unit">/ ${plan.t.kcal.toLocaleString()}kcal</span></p>
       <p class="muted small">${plan.doneSlots.length ? '記録済みの食事(' + Math.round(plan.eaten.kcal) + 'kcal)を差し引き、' : ''}残りを${plan.openSlots.map((k) => MEAL_CATS[k]).join('・') || '—'}に振り分けています。ご飯は${stapleItem('rice').amount}で固定し、おかずの量で調整しています。</p>
-      ${bar('カロリー(この献立で食べた場合)', day[0], plan.t.kcal, 'kcal', 'k')}
+      ${bar('カロリー', day[0], plan.t.kcal, 'kcal', 'k')}
       ${bar('タンパク質(P)', day[1], plan.t.p, 'g', 'p')}
       ${bar('脂質(F)', day[2], plan.t.f, 'g', 'f')}
       ${bar('炭水化物(C)', day[3], plan.t.c, 'g', 'c')}
     </section>
-    ${allIngr.length ? `<section class="card shop">
-      <h3>🛒 この日の買い物リスト${toBuy.length ? `(${toBuy.length}品)` : ''}</h3>
-      ${toBuy.length ? `<ul class="shop-list">${toBuy.map((u) => `<li>${esc(u)}</li>`).join('')}</ul>` : '<p class="ok-text"><b>買い物は不要です。冷蔵庫の食材だけで作れます。</b></p>'}
-      ${fromFridge.length ? `<p class="small"><span class="ok-text">✓ 冷蔵庫にあるので買わなくてOK:</span> ${fromFridge.map(esc).join('・')}</p>` : ''}
+    ${allIngr.length ? `<section class="sec shop">
+      <h2 class="sec-h">この日の買い物リスト${toBuy.length ? `　<span class="num">${toBuy.length}</span>品` : ''}</h2>
+      ${toBuy.length ? `<ul class="shop-list">${toBuy.map((u) => `<li>${esc(u)}</li>`).join('')}</ul>` : '<p><b>買い物は不要です。冷蔵庫の食材だけで作れます。</b></p>'}
+      ${fromFridge.length ? `<p class="small"><span class="label-have">冷蔵庫にあるので買わない</span>${fromFridge.map(esc).join('・')}</p>` : ''}
       <p class="muted small">調味料とお米は家にあるものとしています。</p>
       ${toBuy.length ? `<button class="btn ghost block" data-action="shop-done" data-items="${esc(toBuy.join(','))}">買ったので冷蔵庫に入れる</button>` : ''}
     </section>` : ''}`;
     const short = plan.t.kcal - day[0];
     if (plan.openSlots.length && plan.rem[0] >= 150 && short > plan.t.kcal * 0.08) {
-      html += `<section class="card warn-card"><p class="small">この組み合わせだと目標まで<b>約${Math.round(short)}kcal</b>足りません。食事の回数が少ないと1食で食べきるのが難しいので、間食を増やすか、ご飯を大盛り(250g・+${Math.round((250 - parseInt(stapleItem('rice').amount, 10)) * 1.56)}kcal)にすると近づきます。</p></section>`;
+      html += `<section class="note-band"><p class="small">この組み合わせだと目標まで<b>約${Math.round(short)}kcal</b>足りません。食事の回数が少ないと1食で食べきるのが難しいので、間食を増やすか、ご飯を大盛り(250g・+${Math.round((250 - parseInt(stapleItem('rice').amount, 10)) * 1.56)}kcal)にすると近づきます。</p></section>`;
     }
     if (!plan.openSlots.length) {
-      html += '<section class="card"><p>提案する食事がありません。上の「この日に食べる食事」で選んでください。</p></section>';
+      html += '<section class="sec"><p>提案する食事がありません。上の「この日に食べる食事」で選んでください。</p></section>';
     } else if (plan.rem[0] < 150) {
-      html += '<section class="card"><p>この日はもう目標カロリーに届いています。食べるなら野菜や汁物など軽いものにしましょう。</p></section>';
+      html += '<section class="sec"><p>この日はもう目標カロリーに届いています。食べるなら野菜や汁物など軽いものにしましょう。</p></section>';
     }
     Object.entries(MEAL_CATS).forEach(([slot, label]) => {
       if (plan.doneSlots.includes(slot)) {
         const s = sumMeals((state.meals[ui.mealDate] || []).filter((it) => it.cat === slot));
-        html += `<section class="card plan-slot done"><header class="day-head"><h3>${label}</h3><span class="tag">記録済み ${Math.round(s.kcal)}kcal</span></header></section>`;
+        html += `<section class="plan-slot done"><header class="day-head"><h3>${label}</h3><span class="muted small">記録済み ${Math.round(s.kcal)}kcal</span></header></section>`;
         return;
       }
       const sl = plan.slots[slot];
       if (!sl) return;
       const d = sl.dish;
       const sideItem = sl.items.find((it) => it.side);
-      html += `<section class="card plan-slot">
+      html += `<section class="plan-slot">
         <header class="day-head"><h3>${label}</h3><span class="muted small">目安 ${Math.round(sl.T[0])}kcal</span></header>
-        ${sl.locked ? '<p class="muted small locked-note">🔒 買い物済みの献立です(「別の献立」で変更できます)</p>' : ''}
-        <div class="dish-title"><strong>${esc(d.name)}</strong><span class="lv ${d.level}">${d.level === 'easy' ? '簡単' : '手の込んだ'}・${d.min}分</span></div>
+        ${sl.locked ? '<p class="muted small locked-note">買い物済みのため固定しています。「別の献立」で変えられます。</p>' : ''}
+        <div class="dish-title"><strong>${esc(d.name)}</strong><span class="lv">${d.level === 'easy' ? '簡単' : '手の込んだ'}・${d.min}分</span></div>
         <ul class="food-list">${sl.items.map((it) => `<li><span>${it.addon ? '＋ ' : ''}${esc(it.name)} <b>${esc(it.amount)}</b></span><span class="muted small">${Math.round(it.n[0])}kcal</span></li>`).join('')}</ul>
-        <div class="ingr"><div class="ingr-label">使う食材</div><div class="ingr-chips">${ingredientChips(mealIngredients(sl), have)}</div></div>
+        ${ingredientLines(mealIngredients(sl), have)}
         <p class="plan-total"><b>${Math.round(sl.total[0])}kcal</b> <span class="muted small">P${round(sl.total[1], 1)} F${round(sl.total[2], 1)} C${round(sl.total[3], 1)}</span></p>
         <details class="recipe"><summary>作り方を見る</summary>
           <p class="small"><b>${esc(d.name)}</b>(材料は1人前${sl.m !== 1 ? '。今回は' + sl.m + '倍の量で' : ''})<br>${esc(d.ing)}</p>
           <ol class="small">${d.steps.map((st) => `<li>${esc(st)}</li>`).join('')}</ol>
           ${sideItem ? `<p class="small"><b>${esc(sideItem.side.name)}</b>: ${esc(sideItem.side.ing)}</p>` : ''}
-          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで「${esc(d.name.replace(/\(.*?\)/g, ''))}」の詳しいレシピを探す ↗</a>
+          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで「${esc(d.name.replace(/\(.*?\)/g, ''))}」の詳しいレシピを探す(外部サイト)</a>
         </details>
-        <div class="row-btns"><button class="btn ghost" data-action="plan-reroll" data-slot="${slot}">↻ 別の献立</button><button class="btn primary" data-action="plan-log" data-slot="${slot}">食べたので記録する</button></div>
+        <div class="row-btns"><button class="btn ghost" data-action="plan-reroll" data-slot="${slot}">別の献立</button><button class="btn primary" data-action="plan-log" data-slot="${slot}">食べたので記録する</button></div>
       </section>`;
     });
     html += '<p class="muted small">料理は定番の家庭料理の分量をもとにした目安です。</p>';
@@ -989,7 +1012,7 @@
 
   function selPanel() {
     const f = ui.selFood;
-    if (!f) return '<p class="muted small sel-hint">↓ 食品をタップして選び、量を決めてから「追加」を押してください。</p>';
+    if (!f) return '<p class="muted small sel-hint">下の一覧から食品を選び、量を決めてから「追加」を押します。</p>';
     const q = ui.selQty;
     return `<div class="sel-panel">
       <div class="sel-name"><span class="muted small">選択中</span><strong>${esc(f.name)}</strong><small class="muted">${esc(f.unit)}</small></div>
@@ -1016,7 +1039,7 @@
     let cat = null;
     list.forEach((i) => {
       if (!q && i.cat !== cat) { cat = i.cat; html += `<div class="fr-cat muted small">${esc(cat)}</div>`; }
-      html += chip('fr-toggle', i.name, (have.has(i.name) ? '✓ ' : '') + i.name, have.has(i.name));
+      html += chip('fr-toggle', i.name, i.name, have.has(i.name), `aria-pressed="${have.has(i.name)}"`);
     });
     if (q && !list.length) {
       html += `<button class="chip add-free" data-action="fr-add-text">＋「${esc(ui.fridgeQuery.trim())}」を追加</button>`;
@@ -1037,8 +1060,8 @@
       const da = daysLeft(a.exp), db = daysLeft(b.exp);
       return (da === null ? 999 : da) - (db === null ? 999 : db);
     });
-    let html = `<section class="card">
-      <header class="day-head"><h3>冷蔵庫の中身</h3><span class="muted small">${items.length}品</span></header>
+    let html = `<section class="sec">
+      <header class="day-head"><h2 class="sec-h">冷蔵庫の中身</h2><span class="num-sm">${items.length}<small>品</small></span></header>
       ${items.length ? `<ul class="fr-list">${items.map((it) => `<li>
           <div class="fr-name"><strong>${esc(it.name)}</strong>${expBadge(it.exp)}${it.key ? '' : '<span class="muted small">(レシピ検索の対象外)</span>'}<button class="btn tiny ghost fr-del" data-action="fr-del" data-id="${it.id}">使い切った</button></div>
           <div class="fr-edit">
@@ -1048,8 +1071,8 @@
         : '<p class="muted small">まだ何も登録されていません。下から冷蔵庫にある食材を選んでください。</p>'}
       <p class="muted small">賞味期限を入れると、期限が近いものから優先して使う献立を提案します。</p>
     </section>
-    <section class="card">
-      <h3>食材を登録</h3>
+    <section class="sec">
+      <h2 class="sec-h">食材を登録</h2>
       <p class="muted small">ボタンを押すと冷蔵庫に入ります(もう一度押すと外れます)。</p>
       <input type="search" placeholder="食材を検索(例: たまねぎ)" value="${esc(ui.fridgeQuery)}" data-fr-query>
       <div class="chips fr-chips" id="fr-chips">${fridgeChips()}</div>
@@ -1057,18 +1080,18 @@
     if (!items.length) return html;
     const r = fridgeRecipes();
     const recipeRow = (x, isSide) => `<li class="fr-recipe">
-        <div class="dish-title"><strong>${esc(x.d.name)}</strong>${isSide ? '<span class="lv">副菜</span>' : `<span class="lv ${x.d.level}">${x.d.level === 'easy' ? '簡単' : '手の込んだ'}・${x.d.min}分</span>`}</div>
-        <div class="small"><span class="ok-text">✓ ${x.hit.map(esc).join('・')}</span>${x.miss.length ? `　<span class="muted">足りない: ${x.miss.map(esc).join('・')}</span>` : '　<b class="ok-text">全部そろっています</b>'}</div>
+        <div class="dish-title"><strong>${esc(x.d.name)}</strong><span class="lv">${isSide ? '副菜' : (x.d.level === 'easy' ? '簡単' : '手の込んだ') + '・' + x.d.min + '分'}</span>${x.miss.length ? '' : '<span class="lv strong">全部そろっています</span>'}</div>
+        <dl class="ingr">${x.miss.length ? `<dt>買うもの</dt><dd class="buy">${x.miss.map(esc).join('・')}</dd>` : ''}<dt>冷蔵庫にある</dt><dd>${x.hit.map(esc).join('・')}</dd></dl>
         <details class="recipe"><summary>${isSide ? '材料' : '作り方を見る'}</summary>
           <p class="small">${esc(x.d.ing)}</p>
           ${x.d.steps ? `<ol class="small">${x.d.steps.map((st) => `<li>${esc(st)}</li>`).join('')}</ol>
-          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(x.d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで詳しいレシピを探す ↗</a>` : ''}
+          <a class="small" href="https://www.kurashiru.com/search?query=${encodeURIComponent(x.d.name.replace(/\(.*?\)/g, ''))}" target="_blank" rel="noopener">クラシルで詳しいレシピを探す(外部サイト)</a>` : ''}
         </details></li>`;
-    html += `<section class="card">
-      <h3>冷蔵庫の食材で作れるレシピ</h3>
+    html += `<section class="sec">
+      <h2 class="sec-h">冷蔵庫の食材で作れるレシピ</h2>
       <p class="muted small">冷蔵庫の食材を多く使えるもの(期限が近い食材は優先)から順に並べています。調味料は家にあるものとしています。</p>
       ${r.dishes.length ? `<ul class="fr-recipes">${r.dishes.map((x) => recipeRow(x, false)).join('')}</ul>` : '<p class="muted small">登録した食材を使うレシピがまだありません。</p>'}
-      ${r.sides.length ? `<h3 style="margin-top:14px">あと一品(副菜)</h3><ul class="fr-recipes">${r.sides.map((x) => recipeRow(x, true)).join('')}</ul>` : ''}
+      ${r.sides.length ? `<h3 class="sub-h">あと一品(副菜)</h3><ul class="fr-recipes">${r.sides.map((x) => recipeRow(x, true)).join('')}</ul>` : ''}
       <button class="btn primary block" data-action="meal-view" data-v="plan">冷蔵庫の食材で献立を提案してもらう</button>
     </section>`;
     return html;
@@ -1102,11 +1125,11 @@
 
   function photoBlock() {
     if (!sampleFn) {
-      return window.claude ? '' : '<p class="muted small">📷 写真から自動で分析する機能は、claude.ai のArtifact版で使えます。</p>';
+      return window.claude ? '' : '<p class="muted small">写真から料理を分析する機能は、claude.ai のArtifact版で使えます。</p>';
     }
     const ph = ui.photo;
     if (!ph) {
-      return `<label class="btn ghost block photo-btn">📷 写真から追加(AIが分析)<input type="file" accept="${esc(ui.photoTypes || 'image/*')}" data-photo-file hidden></label>`;
+      return `<label class="btn ghost block photo-btn">写真から追加(Claudeが分析)<input type="file" accept="${esc(ui.photoTypes || 'image/*')}" data-photo-file hidden></label>`;
     }
     let html = `<div class="photo-box">
       <img src="${ph.url}" alt="選んだ食事の写真" class="photo-preview">`;
@@ -1131,7 +1154,7 @@
               ${[['kcal', 'kcal'], ['p', 'P'], ['f', 'F'], ['c', 'C']].map(([k, l]) => `<label><span>${l}</span><input type="number" inputmode="decimal" value="${it[k]}" data-ph="${i}:${k}"></label>`).join('')}
             </div></li>`).join('')}</ul>
           <p class="small" id="photo-total">${photoTotalText()}</p>
-          ${ph.note ? `<p class="muted small">💡 ${esc(ph.note)}</p>` : ''}
+          ${ph.note ? `<p class="muted small">${esc(ph.note)}</p>` : ''}
           <div class="row-btns"><button class="btn ghost" data-action="photo-cancel">やめる</button><button class="btn primary" data-action="photo-add">${MEAL_CATS[ui.mealCat]}に追加</button></div>`;
       }
     }
@@ -1208,14 +1231,15 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
     const items = state.meals[ui.mealDate] || [];
     const total = sumMeals(items);
     const remain = t.kcal - total.kcal;
-    const head = `<h1 class="page-title">食事管理</h1>
+    const head = `<h1 class="page-title">食事</h1>
       <div class="seg">${[['log', '記録'], ['plan', '献立提案'], ['fridge', '冷蔵庫']].map(([k, l]) => `<button class="${ui.mealView === k ? 'on' : ''}" data-action="meal-view" data-v="${k}">${l}</button>`).join('')}</div>
       <div class="date-nav"><button class="icon-btn" data-action="meal-date" data-d="-1">‹</button><strong>${fmtDate(ui.mealDate)}${ui.mealDate === today() ? ' 今日' : ''}</strong><button class="icon-btn" data-action="meal-date" data-d="1">›</button></div>`;
     if (ui.mealView === 'plan') return head + viewMealPlan();
     if (ui.mealView === 'fridge') return head.replace(/<div class="date-nav">[\s\S]*?<\/div>/, '') + viewFridge();
     return head + `
-      <section class="card">
-        <div class="kcal-big"><span class="muted small">残り</span><b class="${remain < 0 ? 'neg' : ''}">${Math.round(remain)}</b><span>kcal</span></div>
+      <section class="hero">
+        <p class="eyebrow">${remain < 0 ? '目標を超えています' : '今日あと食べられる量'}</p>
+        <p class="big-stat ${remain < 0 ? 'neg' : ''}"><span class="num">${Math.abs(Math.round(remain)).toLocaleString()}</span><span class="unit">kcal${remain < 0 ? ' オーバー' : ''}</span></p>
         ${bar('カロリー', total.kcal, t.kcal, 'kcal', 'k')}
         ${bar('タンパク質(P)', total.p, t.p, 'g', 'p')}
         ${bar('脂質(F)', total.f, t.f, 'g', 'f')}
@@ -1228,14 +1252,14 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
       ${Object.entries(MEAL_CATS).map(([cat, label]) => {
         const list = items.map((it, i) => Object.assign({ i }, it)).filter((it) => it.cat === cat);
         const s = sumMeals(list);
-        return `<section class="card meal-cat">
-          <header class="day-head"><h3>${label}</h3><span class="muted small">${Math.round(s.kcal)}kcal</span></header>
-          ${list.length ? `<ul class="food-list">${list.map((it) => `<li><div><span>${esc(it.name)}${it.amount ? ' ' + esc(it.amount) : it.qty !== 1 ? ' ×' + it.qty : ''}</span><small class="muted">P${round(it.p, 1)} F${round(it.f, 1)} C${round(it.c, 1)}</small></div><span>${Math.round(it.kcal)}kcal <button class="icon-btn tiny" data-action="meal-del" data-i="${it.i}">✕</button></span></li>`).join('')}</ul>` : '<p class="muted small">まだ記録がありません</p>'}
+        return `<section class="meal-cat">
+          <header class="day-head"><h3>${label}</h3><span class="num-sm">${Math.round(s.kcal)}<small>kcal</small></span></header>
+          ${list.length ? `<ul class="food-list">${list.map((it) => `<li><div><span>${esc(it.name)}${it.amount ? ' ' + esc(it.amount) : it.qty !== 1 ? ' ×' + it.qty : ''}</span><small class="muted">P${round(it.p, 1)} F${round(it.f, 1)} C${round(it.c, 1)}</small></div><span class="row-end">${Math.round(it.kcal)}kcal <button class="text-btn" data-action="meal-del" data-i="${it.i}" aria-label="${esc(it.name)}を削除">削除</button></span></li>`).join('')}</ul>` : '<p class="muted small">まだありません</p>'}
         </section>`;
       }).join('')}
 
-      <section class="card" id="food-add">
-        <h3>食べたものを追加</h3>
+      <section class="sec" id="food-add">
+        <h2 class="sec-h">食べたものを追加</h2>
         <div class="chips">${Object.entries(MEAL_CATS).map(([k, l]) => chip('meal-cat', k, l, ui.mealCat === k)).join('')}</div>
         <div id="photo-area">${photoBlock()}</div>
         <input type="search" placeholder="食品を検索(例: はむ、ぎゅうどん)" value="${esc(ui.foodQuery)}" data-food-query>
@@ -1285,17 +1309,15 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
     const h = state.profile.height / 100;
     const bmi = latest / (h * h);
     const diff = latest - first;
-    return `<h1 class="page-title">体重記録</h1>
-      <section class="card">
-        <div class="stats">
-          <div><span class="muted small">現在</span><b>${round(latest, 1)}</b><small>kg</small></div>
-          <div><span class="muted small">開始から</span><b class="${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}">${diff > 0 ? '+' : ''}${round(diff, 1)}</b><small>kg</small></div>
-          <div><span class="muted small">BMI</span><b>${round(bmi, 1)}</b></div>
-        </div>
+    return `<h1 class="page-title">体重</h1>
+      <section class="hero">
+        <p class="eyebrow">現在の体重</p>
+        <p class="big-stat"><span class="num">${round(latest, 1).toFixed(1)}</span><span class="unit">kg</span></p>
+        <p class="hero-meta">記録を始めてから <span class="num">${diff > 0 ? '+' : diff < 0 ? '−' : '±'}${Math.abs(round(diff, 1)).toFixed(1)}</span>kg　BMI <span class="num">${round(bmi, 1).toFixed(1)}</span></p>
         ${weightChart(list.slice(-60))}
       </section>
-      <section class="card">
-        <h3>体重を記録</h3>
+      <section class="sec">
+        <h2 class="sec-h">体重を記録</h2>
         <div class="row">
           <input type="date" value="${today()}" data-w-date class="date-input">
           <div class="input-unit"><input type="number" inputmode="decimal" step="0.1" data-w-kg placeholder="${round(latest, 1)}"><em>kg</em></div>
@@ -1303,8 +1325,8 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
         </div>
         <p class="muted small">毎日同じタイミング(朝起きてトイレの後など)に測ると変化が分かりやすいです。</p>
       </section>
-      <section class="card"><h3>履歴</h3>
-        <ul class="food-list">${list.slice().reverse().map((w) => `<li><span>${fmtDate(w.date)}</span><span>${w.kg}kg <button class="icon-btn tiny" data-action="w-del" data-date="${w.date}">✕</button></span></li>`).join('')}</ul>
+      <section class="sec"><h2 class="sec-h">これまでの記録</h2>
+        <ul class="food-list">${list.slice().reverse().map((w) => `<li><span>${fmtDate(w.date)}</span><span class="row-end"><span class="num">${w.kg}</span>kg <button class="text-btn" data-action="w-del" data-date="${w.date}" aria-label="${fmtDate(w.date)}の記録を削除">削除</button></span></li>`).join('')}</ul>
       </section>`;
   }
 
@@ -1313,7 +1335,7 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
     const p = state.profile;
     const sexL = { male: '男性', female: '女性', other: '回答しない' }[p.sex];
     return `<h1 class="page-title">設定</h1>
-      <section class="card"><h3>プロフィール</h3>
+      <section class="sec"><h2 class="sec-h">プロフィール</h2>
         <dl class="kv">
           <dt>目的</dt><dd>${GOALS[p.goal].label}</dd>
           <dt>性別・年齢</dt><dd>${sexL}・${p.age}歳</dd>
@@ -1323,17 +1345,17 @@ ${ph.memo ? '- 食べた人からの補足: ' + ph.memo + '\n' : ''}
           <dt>頻度・時間</dt><dd>週${p.days}回・1回${p.minutes}分</dd>
           <dt>メニュー</dt><dd>${p.mode === 'split' ? '部位別' : 'おまかせ'}${p.focus.length ? '(' + p.focus.map((k) => PARTS[k]).join('・') + ')' : ''}</dd>
         </dl>
-        <button class="btn primary" data-action="edit-profile">条件を変更してメニューを作り直す</button>
+        <button class="btn ghost" data-action="edit-profile">条件を変えてメニューを作り直す</button>
       </section>
       <p class="muted small">バージョン ${APP_VERSION}</p>
-      <section class="card"><h3>データ</h3>
+      <section class="sec"><h2 class="sec-h">データ</h2>
         <p class="muted small">データはこの端末のブラウザに保存されています。機種変更やブラウザ変更の前にはバックアップしてください。</p>
         <div class="row-btns">
           <button class="btn ghost" data-action="export">バックアップを作成</button>
           <button class="btn ghost" data-action="import-paste">バックアップから復元</button>
           <label class="btn ghost">ファイルから復元<input type="file" accept="application/json,.json" data-import hidden></label>
         </div>
-        <button class="btn danger" data-action="reset">すべてのデータを削除</button>
+        <button class="text-btn danger-text" data-action="reset">すべてのデータを削除</button>
       </section>`;
   }
 
